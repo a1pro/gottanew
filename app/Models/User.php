@@ -21,6 +21,7 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
+         'role',
     ];
 
     /**
@@ -45,4 +46,20 @@ class User extends Authenticatable
             'password' => 'hashed',
         ];
     }
+
+    public function isClient()
+    {
+        return $this->role === 'client';
+    }
+
+    public function isCoach()
+    {
+        return $this->role === 'coach';
+    }
+
+    public function isAdmin()
+    {
+        return $this->role === 'admin';
+    }
+
 }
