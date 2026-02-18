@@ -1,82 +1,18 @@
 <?php
-// app/Models/User.php
+// app/Models/Role.php
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Foundation\Auth\User as Authenticatable;
-use Illuminate\Notifications\Notifiable;
-use Laravel\Sanctum\HasApiTokens;
-use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Database\Eloquent\Model;
 
-class User extends Authenticatable
+class Role extends Model
 {
-    use HasApiTokens, HasFactory, Notifiable, SoftDeletes;
+    protected $fillable = ['name', 'slug'];
 
-    protected $fillable = [
-        'name', 'email', 'password', 'phone', 'avatar', 'is_active', 'last_login_at'
-    ];
+    public $timestamps = true;
 
-    protected $hidden = [
-        'password', 'remember_token',
-    ];
-
-    protected $casts = [
-        'email_verified_at' => 'datetime',
-        'is_active' => 'boolean',
-        'last_login_at' => 'datetime',
-    ];
-
-    // Relationships
-    public function roles()
+    public function users()
     {
-        return $this->belongsToMany(Role::class, 'user_roles');
-    }
-
-    public function coachProfile()
-    {
-        return $this->hasOne(CoachProfile::class);
-    }
-
-    public function clientProfile()
-    {
-        return $this->hasOne(ClientProfile::class);
-    }
-
-    public function sessionsAsClient()
-    {
-        return $this->hasMany(CoachingSession::class, 'client_id');
-    }
-
-    public function sessionsAsCoach()
-    {
-        return $this->hasMany(CoachingSession::class, 'coach_id');
-    }
-
-    // Helper methods
-    public function hasRole($roleSlug)
-    {
-        return $this->roles()->where('slug', $roleSlug)->exists();
-    }
-
-    public function isAdmin()
-    {
-        return $this->hasRole('admin');
-    }
-
-    public function isCoach()
-    {
-        return $this->hasRole('coach');
-    }
-
-    public function isClient()
-    {
-        return $this->hasRole('client');
-    }
-
-    // Get primary role (for simple checking)
-    public function getPrimaryRoleAttribute()
-    {
-        return $this->roles->first()?->slug;
+        return $this->belongsToMany(User::class, 'user_roles');
     }
 }
