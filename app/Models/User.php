@@ -1,4 +1,5 @@
 <?php
+// app/Models/User.php
 
 namespace App\Models;
 
@@ -6,11 +7,12 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Laravel\Sanctum\HasApiTokens;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class User extends Authenticatable
 {
-    /** @use HasFactory<\Database\Factories\UserFactory> */
-    use HasFactory, Notifiable;
+    use HasApiTokens, HasFactory, Notifiable, SoftDeletes;
 
     /**
      * The attributes that are mass assignable.
@@ -21,7 +23,10 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
-         'role',
+        'phone',
+        'avatar',
+        'is_active',
+        'last_login_at'
     ];
 
     /**
@@ -44,22 +49,121 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'is_active' => 'boolean',
+            'last_login_at' => 'datetime',
         ];
     }
 
-    public function isClient()
+    /**
+     * Relationships
+     */
+    public function roles()
     {
-        return $this->role === 'client';
+        return $this->belongsToMany(Role::class, 'user_roles');
     }
 
-    public function isCoach()
+    public function coachProfile()
     {
-        return $this->role === 'coach';
+        return $this->hasOne(CoachProfile::class);
+    }
+
+    public function clientProfile()
+    {
+        return $this->hasOne(ClientProfile::class);
+    }
+
+    public function sessionsAsClient()
+    {
+        return $this->hasMany(CoachingSession::class, 'client_id');
+    }
+
+    public function sessionsAsCoach()
+    {
+        return $this->hasMany(CoachingSession::class, 'coach_id');
+    }
+
+    public function coachAvailability()
+    {
+        return $this->hasMany(CoachAvailability::class, 'coach_id');
+    }
+
+    public function coachMatches()
+    {
+        return $this->hasMany(CoachMatch::class, 'client_id');
+    }
+
+    public function questionnaire()
+    {
+        return $this->hasOne(ClientQuestionnaire::class, 'client_id');
+    }
+
+    /**
+     * Role Helper Methods
+     */
+    public function hasRole($roleSlug)
+    {
+        return $this->roles()->where('slug', $roleSlug)->exists();
+    }
+
+    public function hasAnyRole(array $roles)
+    {
+        return $this->roles()->whereIn('slug', $roles)->exists();
     }
 
     public function isAdmin()
     {
-        return $this->role === 'admin';
+        return $this->hasRole('admin');
     }
 
+    public function isCoach()
+    {
+        return $this->hasRole('coach');
+    }
+
+    public function isClient()
+    {
+        return $this->hasRole('client');
+    }
+
+    /**
+     * Get primary role (first role)
+     */
+    public function getPrimaryRoleAttribute()
+    {
+        return $this->roles->first()?->slug;
+    }
+
+    /**
+     * Get all role names
+     */
+    public function getRoleNamesAttribute()
+    {
+        return $this->roles->pluck('name')->toArray();
+    }
+
+    /**
+     * Check if user is active
+     */
+    public function isActive()
+    {
+        return $this->is_active;
+    }
+
+    /**
+     * Scope for active users
+     */
+    public function scopeActive($query)
+    {
+        return $query->where('is_active', true);
+    }
+
+    /**
+     * Scope for users with specific role
+     */
+    public function scopeWithRole($query, $roleSlug)
+    {
+        return $query->whereHas('roles', function($q) use ($roleSlug) {
+            $q->where('slug', $roleSlug);
+        });
+    }
 }

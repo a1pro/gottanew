@@ -13,7 +13,10 @@ class CheckRole
         $user = $request->user();
 
         if (!$user) {
-            return response()->json(['message' => 'Unauthorized'], 401);
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthorized'
+            ], 401);
         }
 
         foreach ($roles as $role) {
@@ -22,6 +25,9 @@ class CheckRole
             }
         }
 
-        return response()->json(['message' => 'Access denied. Required role: ' . implode(', ', $roles)], 403);
+        return response()->json([
+            'success' => false,
+            'message' => 'Access denied. Required role: ' . implode(', ', $roles)
+        ], 403);
     }
 }

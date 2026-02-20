@@ -4,114 +4,256 @@
 namespace App\Http\Controllers\Api\Auth;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Auth\RegisterRequest;
+use App\Http\Requests\Auth\LoginRequest;
 use App\Models\User;
 use App\Models\Role;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Http\JsonResponse;
 
 class AuthController extends Controller
 {
-    public function register(Request $request)
+    /**
+     * Register a new user
+     */
+    public function register(RegisterRequest $request): JsonResponse
     {
-        $request->validate([
-            'name' => 'required|string|max:255',
-            'email' => 'required|string|email|max:255|unique:users',
-            'password' => 'required|string|min:6',
-            'role' => 'required|in:client,coach' // Frontend sends which role they want
-        ]);
+        try {
+            // Create user
+            $user = User::create([
+                'name' => $request->name,
+                'email' => $request->email,
+                'password' => Hash::make($request->password),
+                'phone' => $request->phone,
+                'is_active' => true
+            ]);
 
-        // Create user
-        $user = User::create([
-            'name' => $request->name,
-            'email' => $request->email,
-            'password' => Hash::make($request->password),
-        ]);
+            // Assign role
+            $role = Role::where('slug', $request->role)->first();
+            
+            if (!$role) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Role not found'
+                ], 400);
+            }
+            
+            $user->roles()->attach($role->id);
 
-        // Assign role
-        $role = Role::where('slug', $request->role)->first();
-        $user->roles()->attach($role);
+            // Create profile based on role
+            if ($request->role === 'coach') {
+                $user->coachProfile()->create([
+                    'hourly_rate' => 100,
+                    'onboarding_completed' => false
+                ]);
+            } else {
+                $user->clientProfile()->create([
+                    'questionnaire_completed' => false
+                ]);
+            }
 
-        // Create profile based on role
-        if ($request->role === 'coach') {
-            $user->coachProfile()->create([]);
-        } else {
-            $user->clientProfile()->create([]);
+            // Load relationships
+            $user->load('roles');
+            
+            // Create token
+            $token = $user->createToken('auth_token')->plainTextToken;
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Registration successful',
+                'user' => [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'phone' => $user->phone,
+                    'avatar' => $user->avatar,
+                    'roles' => $user->roles->pluck('slug'),
+                    'primary_role' => $user->primary_role,
+                    'created_at' => $user->created_at,
+                ],
+                'token' => $token
+            ], 201);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Registration failed',
+                'error' => $e->getMessage()
+            ], 500);
         }
-
-        $token = $user->createToken('auth_token')->plainTextToken;
-
-        return response()->json([
-            'user' => [
-                'id' => $user->id,
-                'name' => $user->name,
-                'email' => $user->email,
-                'role' => $user->primary_role
-            ],
-            'token' => $token
-        ], 201);
     }
 
-    public function login(Request $request)
+    /**
+     * Login user
+     */
+    public function login(LoginRequest $request): JsonResponse
     {
-        $request->validate([
-            'email' => 'required|email',
-            'password' => 'required'
-        ]);
+        try {
+            if (!Auth::attempt($request->only('email', 'password'))) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Invalid credentials'
+                ], 401);
+            }
 
-        if (!Auth::attempt($request->only('email', 'password'))) {
-            return response()->json(['message' => 'Invalid credentials'], 401);
+            $user = Auth::user();
+            
+            // Check if user is active
+            if (!$user->is_active) {
+                Auth::logout();
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Your account has been deactivated. Please contact support.'
+                ], 403);
+            }
+
+            // Update last login
+            $user->update(['last_login_at' => now()]);
+
+            // Delete existing tokens
+            $user->tokens()->delete();
+
+            // Create new token
+            $token = $user->createToken('auth_token')->plainTextToken;
+
+            // Load relationships
+            $user->load('roles');
+            
+            if ($user->isCoach()) {
+                $user->load('coachProfile');
+            } else if ($user->isClient()) {
+                $user->load('clientProfile');
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Login successful',
+                'user' => [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'phone' => $user->phone,
+                    'avatar' => $user->avatar,
+                    'roles' => $user->roles->pluck('slug'),
+                    'primary_role' => $user->primary_role,
+                    'profile' => $user->isCoach() ? $user->coachProfile : $user->clientProfile,
+                    'last_login_at' => $user->last_login_at,
+                ],
+                'token' => $token
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Login failed',
+                'error' => $e->getMessage()
+            ], 500);
         }
-
-        $user = Auth::user();
-        
-        if (!$user->is_active) {
-            return response()->json(['message' => 'Account deactivated'], 403);
-        }
-
-        $user->update(['last_login_at' => now()]);
-        $user->tokens()->delete();
-        
-        $token = $user->createToken('auth_token')->plainTextToken;
-
-        return response()->json([
-            'user' => [
-                'id' => $user->id,
-                'name' => $user->name,
-                'email' => $user->email,
-                'role' => $user->primary_role
-            ],
-            'token' => $token
-        ]);
     }
 
-    public function me(Request $request)
+    /**
+     * Get authenticated user
+     */
+    public function me(): JsonResponse
     {
-        $user = $request->user();
-        $user->load('roles');
-        
-        // Load profile based on role
-        if ($user->isCoach()) {
-            $user->load('coachProfile');
-        } else if ($user->isClient()) {
-            $user->load('clientProfile');
-        }
+        try {
+            $user = auth()->user();
+            
+            if (!$user) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthenticated'
+                ], 401);
+            }
 
-        return response()->json([
-            'id' => $user->id,
-            'name' => $user->name,
-            'email' => $user->email,
-            'phone' => $user->phone,
-            'avatar' => $user->avatar,
-            'role' => $user->primary_role,
-            'roles' => $user->roles->pluck('slug'),
-            'profile' => $user->isCoach() ? $user->coachProfile : $user->clientProfile
-        ]);
+            $user->load('roles');
+            
+            if ($user->isCoach()) {
+                $user->load('coachProfile');
+            } else if ($user->isClient()) {
+                $user->load('clientProfile');
+            }
+
+            return response()->json([
+                'success' => true,
+                'user' => [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'phone' => $user->phone,
+                    'avatar' => $user->avatar,
+                    'roles' => $user->roles->pluck('slug'),
+                    'primary_role' => $user->primary_role,
+                    'profile' => $user->isCoach() ? $user->coachProfile : $user->clientProfile,
+                    'is_active' => $user->is_active,
+                    'last_login_at' => $user->last_login_at,
+                    'created_at' => $user->created_at,
+                    'updated_at' => $user->updated_at,
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to get user data',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 
-    public function logout(Request $request)
+    /**
+     * Logout user
+     */
+    public function logout(): JsonResponse
     {
-        $request->user()->currentAccessToken()->delete();
-        return response()->json(['message' => 'Logged out']);
+        try {
+            $user = auth()->user();
+            
+            if ($user) {
+                $user->currentAccessToken()->delete();
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Logged out successfully'
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Logout failed',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Refresh token
+     */
+    public function refresh(): JsonResponse
+    {
+        try {
+            $user = auth()->user();
+            
+            // Delete old token
+            $user->currentAccessToken()->delete();
+            
+            // Create new token
+            $token = $user->createToken('auth_token')->plainTextToken;
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Token refreshed successfully',
+                'token' => $token
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Token refresh failed',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 }
