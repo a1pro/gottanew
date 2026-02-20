@@ -13,6 +13,7 @@ return new class extends Migration
             $table->id();
             $table->foreignId('coach_id')->constrained('users')->onDelete('cascade');
             $table->enum('day_of_week', ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']);
+            $table->string('day');
             $table->time('start_time');
             $table->time('end_time');
             $table->boolean('is_available')->default(true);

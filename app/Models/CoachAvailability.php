@@ -10,7 +10,7 @@ class CoachAvailability extends Model
     protected $table = 'coach_availability';
     
     protected $fillable = [
-        'coach_id', 'day_of_week', 'start_time', 'end_time', 'is_available'
+        'coach_id', 'day_of_week','day', 'start_time', 'end_time', 'is_available'
     ];
 
     protected $casts = [

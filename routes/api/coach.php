@@ -4,8 +4,8 @@
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\Coach\OnboardingController;
 
-Route::middleware(['auth:sanctum', 'role:coach'])->prefix('coach')->group(function () {
-    // Onboarding
+
+Route::middleware(['auth:sanctum', 'role:coach', 'cors'])->prefix('coach')->group(function () {
     Route::get('/onboarding/status', [OnboardingController::class, 'getStatus']);
     Route::post('/onboarding/profile', [OnboardingController::class, 'saveProfile']);
     Route::post('/onboarding/availability', [OnboardingController::class, 'saveAvailability']);

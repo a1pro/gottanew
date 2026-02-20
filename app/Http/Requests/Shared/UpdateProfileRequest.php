@@ -1,5 +1,4 @@
 <?php
-// app/Http/Requests/Shared/UpdateProfileRequest.php
 
 namespace App\Http\Requests\Shared;
 
@@ -9,16 +8,16 @@ class UpdateProfileRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return true; // Any authenticated user
+        return true;
     }
 
     public function rules(): array
     {
         return [
             'name' => ['sometimes', 'string', 'max:255'],
-            'phone' => ['sometimes', 'string', 'max:20'],
-            'avatar' => ['sometimes', 'image', 'mimes:jpeg,png,jpg', 'max:2048'],
-            'timezone' => ['sometimes', 'string', 'timezone'],
+            'phone' => ['nullable', 'string', 'max:20'],
+            'avatar' => ['nullable', 'image', 'mimes:jpeg,png,jpg', 'max:2048'],
+            'timezone' => ['nullable', 'string', 'timezone'],
         ];
     }
 
@@ -30,7 +29,6 @@ class UpdateProfileRequest extends FormRequest
             'avatar.image' => 'Avatar must be an image',
             'avatar.mimes' => 'Avatar must be jpeg, png, or jpg',
             'avatar.max' => 'Avatar size must be less than 2MB',
-            'timezone.timezone' => 'Invalid timezone',
         ];
     }
 }

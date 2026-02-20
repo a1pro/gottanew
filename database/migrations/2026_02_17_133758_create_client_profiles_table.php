@@ -15,9 +15,11 @@ return new class extends Migration
             $table->id();
             $table->foreignId('user_id')->constrained()->onDelete('cascade');
             $table->json('goals')->nullable();
+            $table->json('personality_traits')->nullable();
             $table->json('preferences')->nullable();
             $table->boolean('terms_accepted')->default(false);
             $table->timestamp('terms_accepted_at')->nullable();
+            $table->boolean('questionnaire_completed')->default(false);
             $table->timestamps();
         });
     }
