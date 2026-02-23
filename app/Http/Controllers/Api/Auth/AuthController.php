@@ -17,10 +17,10 @@ class AuthController extends Controller
     /**
      * Register a new user
      */
-   public function register(RegisterRequest $request)
+  public function register(RegisterRequest $request): JsonResponse
     {
         try {
-            // Create user
+            // Create user but set is_approved to false for coaches
             $user = User::create([
                 'name' => $request->name,
                 'email' => $request->email,
@@ -49,7 +49,7 @@ class AuthController extends Controller
                     'onboarding_completed' => false
                 ]);
                 
-                // Don't create token for coaches - they need approval first
+                // Return response without token - needs approval
                 return response()->json([
                     'success' => true,
                     'message' => 'Coach registration successful. Your application will be reviewed.',
@@ -58,7 +58,8 @@ class AuthController extends Controller
                         'name' => $user->name,
                         'email' => $user->email,
                         'role' => 'coach',
-                        'is_approved' => false
+                        'is_approved' => false,
+                        'needs_approval' => true
                     ]
                 ], 201);
                 
@@ -96,9 +97,6 @@ class AuthController extends Controller
         }
     }
 
-    /**
-     * Login user
-     */
     public function login(LoginRequest $request): JsonResponse
     {
         try {
@@ -117,6 +115,16 @@ class AuthController extends Controller
                 return response()->json([
                     'success' => false,
                     'message' => 'Your account has been deactivated. Please contact support.'
+                ], 403);
+            }
+
+            // Check if coach is approved
+            if ($user->isCoach() && !$user->is_approved) {
+                Auth::logout();
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Your coach application is still pending approval. You will be notified once approved.',
+                    'needs_approval' => true
                 ], 403);
             }
 
@@ -149,6 +157,7 @@ class AuthController extends Controller
                     'avatar' => $user->avatar,
                     'roles' => $user->roles->pluck('slug'),
                     'primary_role' => $user->primary_role,
+                    'is_approved' => $user->is_approved,
                     'profile' => $user->isCoach() ? $user->coachProfile : $user->clientProfile,
                     'last_login_at' => $user->last_login_at,
                 ],
