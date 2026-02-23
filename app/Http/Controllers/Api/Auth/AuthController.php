@@ -17,7 +17,7 @@ class AuthController extends Controller
     /**
      * Register a new user
      */
-    public function register(RegisterRequest $request): JsonResponse
+   public function register(RegisterRequest $request)
     {
         try {
             // Create user
@@ -26,7 +26,8 @@ class AuthController extends Controller
                 'email' => $request->email,
                 'password' => Hash::make($request->password),
                 'phone' => $request->phone,
-                'is_active' => true
+                'is_active' => true,
+                'is_approved' => $request->role === 'client' // Clients auto-approved, coaches need approval
             ]);
 
             // Assign role
@@ -47,39 +48,50 @@ class AuthController extends Controller
                     'hourly_rate' => 100,
                     'onboarding_completed' => false
                 ]);
+                
+                // Don't create token for coaches - they need approval first
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Coach registration successful. Your application will be reviewed.',
+                    'user' => [
+                        'id' => $user->id,
+                        'name' => $user->name,
+                        'email' => $user->email,
+                        'role' => 'coach',
+                        'is_approved' => false
+                    ]
+                ], 201);
+                
             } else {
                 $user->clientProfile()->create([
                     'questionnaire_completed' => false
                 ]);
+                
+                // Create token for clients
+                $token = $user->createToken('auth_token')->plainTextToken;
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Registration successful',
+                    'user' => [
+                        'id' => $user->id,
+                        'name' => $user->name,
+                        'email' => $user->email,
+                        'phone' => $user->phone,
+                        'avatar' => $user->avatar,
+                        'roles' => $user->roles->pluck('slug'),
+                        'primary_role' => $user->primary_role,
+                        'is_approved' => true,
+                        'created_at' => $user->created_at,
+                    ],
+                    'token' => $token
+                ], 201);
             }
-
-            // Load relationships
-            $user->load('roles');
-            
-            // Create token
-            $token = $user->createToken('auth_token')->plainTextToken;
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Registration successful',
-                'user' => [
-                    'id' => $user->id,
-                    'name' => $user->name,
-                    'email' => $user->email,
-                    'phone' => $user->phone,
-                    'avatar' => $user->avatar,
-                    'roles' => $user->roles->pluck('slug'),
-                    'primary_role' => $user->primary_role,
-                    'created_at' => $user->created_at,
-                ],
-                'token' => $token
-            ], 201);
 
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Registration failed',
-                'error' => $e->getMessage()
+                'message' => 'Registration failed: ' . $e->getMessage()
             ], 500);
         }
     }
