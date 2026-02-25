@@ -26,7 +26,14 @@ class User extends Authenticatable
         'phone',
         'avatar',
         'is_active',
-        'last_login_at'
+        'is_approved',
+        'last_login_at',
+        'role', // Added role to fix the issue
+        'approved_at',
+        'remember_token',
+        'created_at',
+        'updated_at',
+        'deleted_at'
     ];
 
     /**
@@ -50,7 +57,12 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'is_active' => 'boolean',
+            'is_approved' => 'boolean',
             'last_login_at' => 'datetime',
+            'approved_at' => 'datetime',
+            'created_at' => 'datetime',
+            'updated_at' => 'datetime',
+            'deleted_at' => 'datetime',
         ];
     }
 
@@ -150,11 +162,35 @@ class User extends Authenticatable
     }
 
     /**
+     * Get the user's role from the database column
+     */
+    public function getRoleColumnAttribute()
+    {
+        return $this->attributes['role'] ?? null;
+    }
+
+    /**
      * Scope for active users
      */
     public function scopeActive($query)
     {
         return $query->where('is_active', true);
+    }
+
+    /**
+     * Scope for approved users
+     */
+    public function scopeApproved($query)
+    {
+        return $query->where('is_approved', true);
+    }
+
+    /**
+     * Scope for pending approval (coaches)
+     */
+    public function scopePendingApproval($query)
+    {
+        return $query->where('role', 'coach')->where('is_approved', false);
     }
 
     /**
@@ -165,5 +201,13 @@ class User extends Authenticatable
         return $query->whereHas('roles', function($q) use ($roleSlug) {
             $q->where('slug', $roleSlug);
         });
+    }
+
+    /**
+     * Scope for users by database role column
+     */
+    public function scopeByRole($query, $role)
+    {
+        return $query->where('role', $role);
     }
 }
