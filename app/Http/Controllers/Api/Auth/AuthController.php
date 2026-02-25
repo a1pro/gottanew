@@ -18,7 +18,7 @@ class AuthController extends Controller
     /**
      * Register a new user
      */
-    public function register(RegisterRequest $request): JsonResponse
+  public function register(RegisterRequest $request): JsonResponse
     {
         try {
             // Create user but set is_approved to false for coaches
@@ -109,9 +109,6 @@ class AuthController extends Controller
         }
     }
 
-    /**
-     * Login user
-     */
     public function login(LoginRequest $request): JsonResponse
     {
         try {
