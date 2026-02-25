@@ -3,13 +3,15 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\Coach\OnboardingController;
-use App\Http\Controllers\Api\Coach\ApplicationController;
+use App\Http\Controllers\Api\Coach\CoachController;
 
-// Public coach routes (for applicants)
-Route::middleware('auth:sanctum')->group(function () {
-    Route::post('/coach/application/submit', [ApplicationController::class, 'submit']);
-    Route::get('/coach/application/status', [ApplicationController::class, 'status']);
+// Apply CORS middleware directly to public routes
+Route::middleware(['cors'])->group(function () {
+    Route::get('/coaches', [CoachController::class, 'index']);
+    Route::get('/coaches/{id}', [CoachController::class, 'show']);
 });
+
+
 
 Route::middleware(['auth:sanctum', 'role:coach', 'cors'])->prefix('coach')->group(function () {
     Route::get('/onboarding/status', [OnboardingController::class, 'getStatus']);

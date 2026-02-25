@@ -3,12 +3,11 @@
 namespace App\Http\Controllers\Api\Coach;
 
 use App\Http\Controllers\Controller;
+use App\Models\CoachProfile;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
-
-class CoachController extends Controller  // This should be the only CoachController class
-
+class CoachProfileController extends Controller
 {
     /**
      * Get all approved coaches - public endpoint
@@ -16,27 +15,31 @@ class CoachController extends Controller  // This should be the only CoachContro
     public function index()
     {
         try {
-            Log::info('Fetching all approved coaches');
+            Log::info('Fetching all approved coaches from coach_profiles');
             
-            $coaches = User::whereHas('roles', function($q) {
-                $q->where('slug', 'coach');
-            })
-            ->where('is_approved', true)
-            ->with('coachProfile')
-            ->get()
-            ->map(function ($coach) {
-                return [
-                    'id' => $coach->id,
-                    'name' => $coach->name,
-                    'avatar' => $coach->avatar,
-                    'bio' => $coach->coachProfile?->bio,
-                    'expertise' => $coach->coachProfile?->expertise,
-                    'coaching_styles' => $coach->coachProfile?->coaching_styles,
-                    'rating' => $coach->coachProfile?->rating,
-                    'hourly_rate' => $coach->coachProfile?->hourly_rate,
-                    'total_sessions' => $coach->coachProfile?->total_sessions
-                ];
-            });
+            // Get coaches from coach_profiles table with user data
+            $coaches = CoachProfile::with('user')
+                ->whereHas('user', function($q) {
+                    $q->where('is_approved', true);
+                })
+                ->get()
+                ->map(function ($profile) {
+                    return [
+                        'id' => $profile->user->id,
+                        'name' => $profile->user->name,
+                        'avatar' => $profile->user->avatar,
+                        'bio' => $profile->bio,
+                        'expertise' => $profile->expertise,
+                        'coaching_styles' => $profile->coaching_styles,
+                        'rating' => $profile->rating,
+                        'hourly_rate' => $profile->hourly_rate,
+                        'total_sessions' => $profile->total_sessions,
+                        'languages' => $profile->languages,
+                        'certifications' => $profile->certifications,
+                        'education' => $profile->education,
+                        'experience_years' => $profile->experience_years
+                    ];
+                });
 
             Log::info('Found ' . $coaches->count() . ' approved coaches');
 
@@ -64,20 +67,22 @@ class CoachController extends Controller  // This should be the only CoachContro
         try {
             Log::info('Fetching coach with ID: ' . $id);
             
-            $coach = User::whereHas('roles', function($q) {
-                $q->where('slug', 'coach');
-            })
-            ->where('is_approved', true)
-            ->with('coachProfile')
-            ->find($id);
+            $profile = CoachProfile::with('user')
+                ->whereHas('user', function($q) {
+                    $q->where('is_approved', true);
+                })
+                ->where('user_id', $id)
+                ->first();
 
-            if (!$coach) {
+            if (!$profile) {
                 Log::warning('Coach not found with ID: ' . $id);
                 return response()->json([
                     'success' => false,
                     'message' => 'Coach not found'
                 ], 404);
             }
+
+            $coach = $profile->user;
 
             Log::info('Coach found: ' . $coach->name);
 
@@ -88,16 +93,16 @@ class CoachController extends Controller  // This should be the only CoachContro
                     'name' => $coach->name,
                     'email' => $coach->email,
                     'avatar' => $coach->avatar,
-                    'bio' => $coach->coachProfile?->bio,
-                    'expertise' => $coach->coachProfile?->expertise,
-                    'coaching_styles' => $coach->coachProfile?->coaching_styles,
-                    'hourly_rate' => $coach->coachProfile?->hourly_rate,
-                    'languages' => $coach->coachProfile?->languages,
-                    'certifications' => $coach->coachProfile?->certifications,
-                    'education' => $coach->coachProfile?->education,
-                    'experience_years' => $coach->coachProfile?->experience_years,
-                    'rating' => $coach->coachProfile?->rating,
-                    'total_sessions' => $coach->coachProfile?->total_sessions,
+                    'bio' => $profile->bio,
+                    'expertise' => $profile->expertise,
+                    'coaching_styles' => $profile->coaching_styles,
+                    'hourly_rate' => $profile->hourly_rate,
+                    'languages' => $profile->languages,
+                    'certifications' => $profile->certifications,
+                    'education' => $profile->education,
+                    'experience_years' => $profile->experience_years,
+                    'rating' => $profile->rating,
+                    'total_sessions' => $profile->total_sessions,
                     'availability' => $coach->coachAvailability ?? []
                 ]
             ]);
@@ -114,29 +119,21 @@ class CoachController extends Controller  // This should be the only CoachContro
     }
 
     /**
-     * Update coach profile - protected endpoint (only for authenticated coaches)
+     * Update coach profile - protected endpoint
      */
     public function updateProfile(Request $request)
     {
         try {
-            $coach = $request->user();
+            $user = $request->user();
             
-            if (!$coach) {
+            if (!$user) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthorized'
                 ], 401);
             }
 
-            // Check if user is a coach
-            if (!$coach->isCoach()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Access denied. Coach role required.'
-                ], 403);
-            }
-
-            $profile = $coach->coachProfile;
+            $profile = $user->coachProfile;
             
             if (!$profile) {
                 return response()->json([
@@ -171,7 +168,7 @@ class CoachController extends Controller  // This should be the only CoachContro
 
             $profile->update($updateData);
 
-            Log::info('Coach profile updated for user: ' . $coach->id);
+            Log::info('Coach profile updated for user: ' . $user->id);
 
             return response()->json([
                 'success' => true,
@@ -202,20 +199,18 @@ class CoachController extends Controller  // This should be the only CoachContro
     public function getAvailability($id)
     {
         try {
-            $coach = User::whereHas('roles', function($q) {
-                $q->where('slug', 'coach');
-            })
-            ->where('is_approved', true)
-            ->find($id);
+            $user = User::where('id', $id)
+                ->where('is_approved', true)
+                ->first();
 
-            if (!$coach) {
+            if (!$user) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Coach not found'
                 ], 404);
             }
 
-            $availability = $coach->coachAvailability()
+            $availability = $user->coachAvailability()
                 ->where('is_available', true)
                 ->get();
 

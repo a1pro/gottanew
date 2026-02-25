@@ -8,6 +8,7 @@ use App\Http\Requests\Auth\RegisterRequest;
 use App\Http\Requests\Auth\LoginRequest;
 use App\Models\User;
 use App\Models\Role;
+use App\Models\CoachApplication;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Http\JsonResponse;
@@ -27,7 +28,8 @@ class AuthController extends Controller
                 'password' => Hash::make($request->password),
                 'phone' => $request->phone,
                 'is_active' => true,
-                'is_approved' => $request->role === 'client' // Clients auto-approved, coaches need approval
+                'is_approved' => $request->role === 'client', // Clients auto-approved, coaches need approval
+                'role' => $request->role // This now works because 'role' is in $fillable
             ]);
 
             // Assign role
@@ -44,6 +46,16 @@ class AuthController extends Controller
 
             // Create profile based on role
             if ($request->role === 'coach') {
+                // Create coach application record
+                CoachApplication::create([
+                    'user_id' => $user->id,
+                    'experience' => $request->experience,
+                    'specialties' => $request->specialties,
+                    'reason' => $request->reason,
+                    'certification' => $request->certification,
+                    'status' => 'pending'
+                ]);
+
                 $user->coachProfile()->create([
                     'hourly_rate' => 100,
                     'onboarding_completed' => false
@@ -208,6 +220,7 @@ class AuthController extends Controller
                     'primary_role' => $user->primary_role,
                     'profile' => $user->isCoach() ? $user->coachProfile : $user->clientProfile,
                     'is_active' => $user->is_active,
+                    'is_approved' => $user->is_approved,
                     'last_login_at' => $user->last_login_at,
                     'created_at' => $user->created_at,
                     'updated_at' => $user->updated_at,
