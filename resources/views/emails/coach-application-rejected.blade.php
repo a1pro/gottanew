@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Application Update</title>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: #000; color: #fff; padding: 20px; text-align: center; }
+        .content { padding: 30px 20px; background: #f9f9f9; }
+        .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Gotta</h1>
+        </div>
+        <div class="content">
+            <h2>Update on Your Application, {{ $name }}</h2>
+            <p>Thank you for your interest in becoming a coach on Gotta.</p>
+            <p>After careful review, we regret to inform you that we are unable to approve your application at this time.</p>
+            @if($reason)
+                <p><strong>Reason:</strong> {{ $reason }}</p>
+            @endif
+            <p>You're welcome to apply again in the future with additional experience or qualifications.</p>
+            <p>Thank you for understanding.</p>
+            <p>Best regards,<br>The Gotta Team</p>
+        </div>
+        <div class="footer">
+            &copy; {{ date('Y') }} Gotta. All rights reserved.
+        </div>
+    </div>
+</body>
+</html>
