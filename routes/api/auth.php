@@ -12,6 +12,6 @@ Route::middleware(['cors'])->group(function () {
 });
 
 Route::middleware(['auth:sanctum', 'cors'])->group(function () {
-    Route::get('/me', [AuthController::class, 'me']);
+    Route::get('/profile ', [AuthController::class, 'me']);
     Route::post('/logout', [AuthController::class, 'logout']);
 });
