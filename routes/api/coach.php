@@ -1,6 +1,5 @@
 <?php
 // routes/api/coach.php
-
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\Coach\OnboardingController;
 use App\Http\Controllers\Api\Coach\CoachController;
@@ -10,7 +9,6 @@ Route::middleware(['cors'])->group(function () {
     Route::get('/coaches', [CoachController::class, 'index']);
     Route::get('/coaches/{id}', [CoachController::class, 'show']);
 });
-
 
 
 Route::middleware(['auth:sanctum', 'role:coach', 'cors'])->prefix('coach')->group(function () {
