@@ -213,12 +213,4 @@ class User extends Authenticatable
     {
         return $query->where('role', $role);
     }
-
-    /**
-     * Scope for users by database role column
-     */
-    public function scopeByRole($query, $role)
-    {
-        return $query->where('role', $role);
-    }
 }
