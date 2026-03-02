@@ -18,7 +18,7 @@ class AuthController extends Controller
     /**
      * Register a new user
      */
-  public function register(RegisterRequest $request): JsonResponse
+    public function register(RegisterRequest $request): JsonResponse
     {
         try {
             // Create user but set is_approved to false for coaches
@@ -71,7 +71,11 @@ class AuthController extends Controller
                         'email' => $user->email,
                         'role' => 'coach',
                         'is_approved' => false,
-                        'needs_approval' => true
+                        'needs_approval' => true,
+                        'experience' => $request->experience,
+                        'specialties' => $request->specialties,
+                        'reason' => $request->reason,
+                        'certification' => $request->certification,
                     ]
                 ], 201);
                 
@@ -109,6 +113,9 @@ class AuthController extends Controller
         }
     }
 
+    /**
+     * Login user
+     */
     public function login(LoginRequest $request): JsonResponse
     {
         try {

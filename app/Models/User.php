@@ -109,48 +109,53 @@ class User extends Authenticatable
         return $this->hasOne(ClientQuestionnaire::class, 'client_id');
     }
 
+    public function coachApplication()
+    {
+        return $this->hasOne(CoachApplication::class);
+    }
+
     /**
      * Role Helper Methods
      */
     public function hasRole($roleSlug)
     {
-        return $this->roles()->where('slug', $roleSlug)->exists();
+        return $this->role === $roleSlug;
     }
 
     public function hasAnyRole(array $roles)
     {
-        return $this->roles()->whereIn('slug', $roles)->exists();
+        return in_array($this->role, $roles);
     }
 
     public function isAdmin()
     {
-        return $this->hasRole('admin');
+        return $this->role === 'admin';
     }
 
     public function isCoach()
     {
-        return $this->hasRole('coach');
+        return $this->role === 'coach';
     }
 
     public function isClient()
     {
-        return $this->hasRole('client');
+        return $this->role === 'client';
     }
 
     /**
-     * Get primary role (first role)
+     * Get primary role from database column
      */
     public function getPrimaryRoleAttribute()
     {
-        return $this->roles->first()?->slug;
+        return $this->role;
     }
 
     /**
-     * Get all role names
+     * Get role name
      */
     public function getRoleNamesAttribute()
     {
-        return $this->roles->pluck('name')->toArray();
+        return [$this->role];
     }
 
     /**
@@ -198,9 +203,15 @@ class User extends Authenticatable
      */
     public function scopeWithRole($query, $roleSlug)
     {
-        return $query->whereHas('roles', function($q) use ($roleSlug) {
-            $q->where('slug', $roleSlug);
-        });
+        return $query->where('role', $roleSlug);
+    }
+
+    /**
+     * Scope for users by database role column
+     */
+    public function scopeByRole($query, $role)
+    {
+        return $query->where('role', $role);
     }
 
     /**

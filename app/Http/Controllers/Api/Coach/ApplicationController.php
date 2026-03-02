@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\CoachApplication;
 use App\Mail\CoachApplicationReceived;
+use App\Mail\CoachApplicationApproved;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Validator;
@@ -110,6 +111,8 @@ class ApplicationController extends Controller
      */
     public function approve(Request $request, $id)
     {
+        \Log::info('Approve method called', ['id' => $id]);
+        
         $validator = Validator::make($request->all(), [
             'admin_notes' => 'nullable|string',
         ]);
@@ -144,8 +147,24 @@ class ApplicationController extends Controller
             'approved_at' => now()
         ]);
 
-        // Send approval email (you'll need to create this)
-        // Mail::to($user->email)->send(new CoachApplicationApproved($user));
+        // Log approval action
+        \Log::info('Coach application approved', [
+            'application_id' => $application->id,
+            'user_id' => $user->id,
+            'user_email' => $user->email,
+            'approved_by' => $request->user()->id,
+            'approved_at' => now()
+        ]);
+
+        // Send approval email
+        Mail::to($user->email)->send(new CoachApplicationApproved($user));
+
+        // Log email sent
+        \Log::info('Approval email sent', [
+            'application_id' => $application->id,
+            'user_email' => $user->email,
+            'sent_at' => now()
+        ]);
 
         return response()->json([
             'success' => true,

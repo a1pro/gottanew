@@ -21,12 +21,14 @@ class DatabaseSeeder extends Seeder
 
         // Create admin
         $admin = User::create([
-            'name' => 'Admin User',
+            'name' => 'Admin',
             'email' => 'admin@example.com',
-            'password' => Hash::make('password'),
-            'is_active' => true
+            'password' => Hash::make('123456'),
+            'role' => 'admin',
+            'is_active' => true,
+            'is_approved' => true,
+            'approved_at' => now()
         ]);
-        $admin->roles()->attach($adminRole);
 
         // Create sample coach
         $coach = User::create([
