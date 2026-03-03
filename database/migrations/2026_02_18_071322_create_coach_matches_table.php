@@ -13,15 +13,23 @@ return new class extends Migration
             $table->id();
             $table->foreignId('client_id')->constrained('users')->onDelete('cascade');
             $table->foreignId('coach_id')->constrained('users')->onDelete('cascade');
-            $table->float('match_score')->default(0); // 0-100 score
+            $table->foreignId('goal_id')->nullable()->constrained('goals')->onDelete('set null'); // Add goal reference
+            $table->float('match_score')->default(0); // 0-10 score (to match frontend expectation)
             $table->json('match_reasons')->nullable(); // Why they matched
+            $table->json('key_alignments')->nullable(); // Key alignment factors
+            $table->text('match_reason')->nullable(); // Detailed match explanation
+            $table->float('confidence_score')->default(0); // Confidence in the match (0-10)
             $table->boolean('presented_to_client')->default(false);
             $table->boolean('selected_by_client')->default(false);
             $table->timestamp('selected_at')->nullable();
             $table->timestamps();
 
-            // Ensure unique matches
-            $table->unique(['client_id', 'coach_id']);
+            // Ensure unique matches per client-coach-goal combination
+            $table->unique(['client_id', 'coach_id', 'goal_id']);
+            
+            // Indexes for performance
+            $table->index(['client_id', 'presented_to_client']);
+            $table->index(['coach_id', 'match_score']);
         });
     }
 
