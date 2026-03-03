@@ -30,18 +30,18 @@ class RoleUserSeeder extends Seeder
         );
 
         // Create admin user if not exists
-        $admin = User::firstOrCreate(
-            ['email' => 'admin@example.com'],
-            [
-                'name' => 'Admin User',
-                'password' => Hash::make('password'),
-                'is_active' => true
-            ]
-        );
+        // $admin = User::firstOrCreate(
+        //     ['email' => 'admin@example.com'],
+        //     [
+        //         'name' => 'Admin User',
+        //         'password' => Hash::make('password'),
+        //         'is_active' => true
+        //     ]
+        // );
         
-        if (!$admin->roles()->where('role_id', $adminRole->id)->exists()) {
-            $admin->roles()->attach($adminRole);
-        }
+        // if (!$admin->roles()->where('role_id', $adminRole->id)->exists()) {
+        //     $admin->roles()->attach($adminRole);
+        // }
 
         // Create coach user if not exists
         $coach = User::firstOrCreate(

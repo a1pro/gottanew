@@ -16,7 +16,7 @@ class Cors
         'http://localhost:5173',
         'http://127.0.0.1:3000',
         'https://gotta.a1professionals.net',
-        'https://gotta.a1professionals.net',
+        'https://gottaweb.a1professionals.net',
     ];
 
     /**
