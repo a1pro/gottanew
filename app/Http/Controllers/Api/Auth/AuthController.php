@@ -20,6 +20,7 @@ class AuthController extends Controller
      */
     public function register(RegisterRequest $request): JsonResponse
     {
+        // die('test');
         try {
             // Create user but set is_approved to false for coaches
             $user = User::create([
@@ -28,7 +29,7 @@ class AuthController extends Controller
                 'password' => Hash::make($request->password),
                 'phone' => $request->phone,
                 'is_active' => true,
-                'is_approved' => $request->role === 'client', // Clients auto-approved, coaches need approval
+                'is_approved' => true, // Temporarily auto-approve coaches for testing
                 'role' => $request->role // This now works because 'role' is in $fillable
             ]);
 
@@ -61,22 +62,25 @@ class AuthController extends Controller
                     'onboarding_completed' => false
                 ]);
                 
-                // Return response without token - needs approval
+                // Create token for coaches (now auto-approved for testing)
+                $token = $user->createToken('auth_token')->plainTextToken;
+                
                 return response()->json([
                     'success' => true,
-                    'message' => 'Coach registration successful. Your application will be reviewed.',
+                    'message' => 'Coach registration successful.',
                     'user' => [
                         'id' => $user->id,
                         'name' => $user->name,
                         'email' => $user->email,
                         'role' => 'coach',
-                        'is_approved' => false,
-                        'needs_approval' => true,
+                        'is_approved' => true,
+                        'needs_approval' => false,
                         'experience' => $request->experience,
                         'specialties' => $request->specialties,
                         'reason' => $request->reason,
                         'certification' => $request->certification,
-                    ]
+                    ],
+                    'token' => $token
                 ], 201);
                 
             } else {
