@@ -1,7 +1,8 @@
 <?php
 
 namespace App\Http\Controllers\Api\Auth;
-
+use App\Http\Controllers\Controller;
+use Illuminate\Http\Request;
 use App\Models\User;
 use App\Models\Coach\PendingCoachApplication;
 
@@ -9,6 +10,7 @@ use App\Models\Core\UserRole;
 use App\Models\Finance\UserWallet;
 use Illuminate\Support\Facades\Hash;
 use App\Http\Controllers\Api\BaseController;
+
 
 class AuthController extends BaseController
 {
@@ -44,25 +46,29 @@ class AuthController extends BaseController
         ], 'User registered');
     }
 
-    public function login(Request $request)
+   public function login(Request $request)
     {
-        $request->validate([
-            'email' => 'required',
-            'password' => 'required'
-        ]);
-
         $user = User::where('email', $request->email)->first();
 
         if (!$user || !Hash::check($request->password, $user->password)) {
-            return $this->error('Invalid credentials', 401);
+            return response()->json(['message' => 'Invalid credentials'], 401);
         }
 
-        $token = $user->createToken('api_token')->plainTextToken;
+        $token = $user->createToken('auth_token')->plainTextToken;
 
-        return $this->success([
-            'user' => $user,
-            'token' => $token
-        ], 'Login successful');
+        $role = UserRole::where('user_id', $user->id)->value('role');
+
+        return response()->json([
+            'data' => [
+                'token' => $token,
+                'user' => [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'role' => $role
+                ]
+            ]
+        ]);
     }
 
     public function me(Request $request)
@@ -134,4 +140,16 @@ class AuthController extends BaseController
                 'message' => 'Coach approved'
             ]);
         }
+
+        public function setPassword(Request $request)
+            {
+                $user = User::where('email',$request->email)->firstOrFail();
+
+                $user->password = Hash::make($request->password);
+                $user->save();
+
+                return response()->json([
+                    'message' => 'Password set successfully'
+                ]);
+            }
 }
