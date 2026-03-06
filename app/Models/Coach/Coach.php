@@ -27,13 +27,36 @@ class Coach extends Model
         'available_now' => 'boolean'
     ];
 
+    /*
+    |--------------------------------------------------------------------------
+    | Sessions
+    |--------------------------------------------------------------------------
+    */
+
     public function sessions()
     {
         return $this->hasMany(\App\Models\Session\CoachingSession::class);
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | Packages
+    |--------------------------------------------------------------------------
+    */
+
     public function packages()
     {
         return $this->hasMany(CoachingPackage::class);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Pending Application Relation
+    |--------------------------------------------------------------------------
+    */
+
+    public function coachApplication()
+    {
+        return $this->hasOne(\App\Models\Coach\PendingCoachApplication::class, 'email', 'email');
     }
 }
