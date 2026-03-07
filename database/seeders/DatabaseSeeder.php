@@ -21,6 +21,9 @@ class DatabaseSeeder extends Seeder
             CoachingPackageSeeder::class,
             CoachAvailabilitySeeder::class,
             SystemCapacitySeeder::class,
+            GoalSeeder::class,
+            QuestionSeeder::class,
+         
         ]);
     }
 }

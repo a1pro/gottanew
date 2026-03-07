@@ -10,7 +10,6 @@ return new class extends Migration
     {
         Schema::create('coaching_sessions', function (Blueprint $table) {
 
-            $table->engine = 'InnoDB';
 
             $table->id(); // unsignedBigInteger PRIMARY
 
