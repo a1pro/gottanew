@@ -14,5 +14,8 @@ Route::prefix('v1')
     require __DIR__ . '/api/admin.php';
     require __DIR__ . '/api/analytics.php';
     require __DIR__ . '/api/finance.php';
-
+    require __DIR__ . '/api/goals.php';
+    require __DIR__.'/api/questions.php';
+    require __DIR__.'/api/responses.php';
+    require __DIR__.'/api/ai.php';  
 });

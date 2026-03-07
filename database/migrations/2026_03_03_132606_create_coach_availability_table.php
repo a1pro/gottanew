@@ -17,7 +17,7 @@ return new class extends Migration
 
             // Relationship with coaches table
             $table->foreignId('coach_id')
-                  ->constrained()
+                  ->constrained('coaches')
                   ->cascadeOnDelete();
 
             // Day of week (0 = Sunday, 6 = Saturday)

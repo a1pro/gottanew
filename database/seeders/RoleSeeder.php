@@ -14,15 +14,23 @@ class RoleSeeder extends Seeder
      */
     public function run(): void
     {
-        $admin = User::create([
-            'name' => 'Admin User',
-            'email' => 'admin@example.com',
-            'password' => Hash::make('Admin@123'), // admin password
-        ]);
 
-        UserRole::create([
-            'user_id' => $admin->id,
-            'role' => 'admin'
-        ]);
+        // Create or get admin user
+        $admin = User::updateOrCreate(
+            ['email' => 'admin@example.com'], // search condition
+            [
+                'name' => 'Admin User',
+                'password' => Hash::make('Admin@123'),
+            ]
+        );
+
+        // Assign role if not already assigned
+        UserRole::firstOrCreate(
+            [
+                'user_id' => $admin->id,
+                'role' => 'admin'
+            ]
+        );
+
     }
 }
