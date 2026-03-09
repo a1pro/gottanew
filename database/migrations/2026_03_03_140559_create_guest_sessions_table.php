@@ -6,20 +6,23 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     */
     public function up(): void
     {
-       Schema::create('guest_sessions', function (Blueprint $table) {
+        Schema::create('guest_sessions', function (Blueprint $table) {
 
             $table->id();
 
             $table->string('session_id')->unique();
 
-            $table->foreignId('user_id')->nullable()->constrained()->cascadeOnDelete();
+            $table->foreignId('user_id')
+                  ->nullable()
+                  ->constrained('users')
+                  ->cascadeOnDelete();
 
-             $table->foreignId('goal_id')->constrained()->cascadeOnDelete();
+            $table->foreignId('goal_id')
+                  ->constrained('goals')
+                  ->cascadeOnDelete();
+
             $table->json('responses')->nullable();
 
             $table->json('ai_analysis')->nullable();
@@ -29,13 +32,9 @@ return new class extends Migration
             $table->timestamp('expires_at')->nullable();
 
             $table->timestamps();
-
         });
     }
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
         Schema::dropIfExists('guest_sessions');
