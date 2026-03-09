@@ -11,76 +11,79 @@ class QuestionSeeder extends Seeder
 {
     public function run(): void
     {
-        $goal = Goal::where('goal_id','health-fitness')->first();
+        $goals = Goal::where('is_active', 1)->get();
 
-        /*
-        |--------------------------------------------------------------------------
-        | Question 1
-        |--------------------------------------------------------------------------
-        */
+        foreach ($goals as $goal) {
 
-        $q1 = Question::create([
-            'goal_id' => $goal->id,
-            'question' => 'How would you rate your current fitness level?',
-            'type' => 'multiple-choice',
-            'order' => 1
-        ]);
+            /*
+            |--------------------------------------------------------------------------
+            | Question 1
+            |--------------------------------------------------------------------------
+            */
 
-        QuestionOption::insert([
-            [
-                'question_id' => $q1->id,
-                'option_text' => 'Beginner - Just starting my fitness journey'
-            ],
-            [
-                'question_id' => $q1->id,
-                'option_text' => 'Intermediate - I exercise regularly but want to improve'
-            ],
-            [
-                'question_id' => $q1->id,
-                'option_text' => 'Advanced - I have a solid fitness routine'
-            ]
-        ]);
+            $q1 = Question::create([
+                'goal_id' => $goal->id,
+                'question' => 'How would you rate your current fitness level?',
+                'type' => 'multiple-choice',
+                'order' => 1
+            ]);
 
-        /*
-        |--------------------------------------------------------------------------
-        | Question 2
-        |--------------------------------------------------------------------------
-        */
+            QuestionOption::insert([
+                [
+                    'question_id' => $q1->id,
+                    'option_text' => 'Beginner - Just starting my journey'
+                ],
+                [
+                    'question_id' => $q1->id,
+                    'option_text' => 'Intermediate - I am progressing steadily'
+                ],
+                [
+                    'question_id' => $q1->id,
+                    'option_text' => 'Advanced - I already have strong experience'
+                ]
+            ]);
 
-        Question::create([
-            'goal_id' => $goal->id,
-            'question' => 'What is your main fitness goal?',
-            'type' => 'open-ended',
-            'placeholder' => 'Lose weight, build muscle, run a marathon...',
-            'order' => 2
-        ]);
+            /*
+            |--------------------------------------------------------------------------
+            | Question 2
+            |--------------------------------------------------------------------------
+            */
 
-        /*
-        |--------------------------------------------------------------------------
-        | Question 3
-        |--------------------------------------------------------------------------
-        */
+            Question::create([
+                'goal_id' => $goal->id,
+                'question' => 'What is your main goal in this area?',
+                'type' => 'open-ended',
+                'placeholder' => 'Describe what you want to achieve...',
+                'order' => 2
+            ]);
 
-        Question::create([
-            'goal_id' => $goal->id,
-            'question' => 'Do you have any health conditions or injuries?',
-            'type' => 'open-ended',
-            'placeholder' => 'Describe any health considerations...',
-            'order' => 3
-        ]);
+            /*
+            |--------------------------------------------------------------------------
+            | Question 3
+            |--------------------------------------------------------------------------
+            */
 
-        /*
-        |--------------------------------------------------------------------------
-        | Question 4
-        |--------------------------------------------------------------------------
-        */
+            Question::create([
+                'goal_id' => $goal->id,
+                'question' => 'What challenges are you currently facing?',
+                'type' => 'open-ended',
+                'placeholder' => 'Share any obstacles...',
+                'order' => 3
+            ]);
 
-        Question::create([
-            'goal_id' => $goal->id,
-            'question' => 'What motivates you most to stay healthy?',
-            'type' => 'open-ended',
-            'placeholder' => 'Share what drives you...',
-            'order' => 4
-        ]);
+            /*
+            |--------------------------------------------------------------------------
+            | Question 4
+            |--------------------------------------------------------------------------
+            */
+
+            Question::create([
+                'goal_id' => $goal->id,
+                'question' => 'What motivates you to improve in this area?',
+                'type' => 'open-ended',
+                'placeholder' => 'Share your motivation...',
+                'order' => 4
+            ]);
+        }
     }
 }

@@ -3,14 +3,11 @@
 namespace App\Services\Coach;
 
 use App\Models\Coach\Coach;
-use App\Models\Response\UserResponse;
 
 class CoachMatchingService
 {
-
-    public function match($goalId, $responses)
+    public function match($goalId, $responses, $personality = null)
     {
-
         $coaches = Coach::where('is_active', true)->get();
 
         $results = [];
@@ -20,59 +17,111 @@ class CoachMatchingService
             $score = 0;
 
             /*
-            |--------------------------------------------------------------------------
-            | Goal Match
-            |--------------------------------------------------------------------------
+            |--------------------------------------------------
+            | Prepare Coach Data
+            |--------------------------------------------------
             */
 
-            if (str_contains($coach->coaching_expertise, $goalId)) {
-                $score += 50;
-            }
+            $specialties = is_array($coach->specialties)
+                ? implode(' ', $coach->specialties)
+                : ($coach->specialties ?? '');
+
+            $specialties = strtolower($specialties);
 
             /*
-            |--------------------------------------------------------------------------
+            |--------------------------------------------------
             | Response Keyword Match
-            |--------------------------------------------------------------------------
+            |--------------------------------------------------
             */
 
-            foreach ($responses as $response) {
+            if (!empty($responses) && is_array($responses)) {
 
-                if (str_contains(
-                    strtolower($coach->specialties),
-                    strtolower($response['answer'])
-                )) {
-                    $score += 20;
+                foreach ($responses as $response) {
+
+                    if (!isset($response['answer']) || empty($response['answer'])) {
+                        continue;
+                    }
+
+                    $answer = $response['answer'];
+
+                    // Convert array answers to string
+                    if (is_array($answer)) {
+                        $answer = implode(' ', $answer);
+                    }
+
+                    $answer = strtolower($answer);
+
+                    if (str_contains($specialties, $answer)) {
+                        $score += 20;
+                    }
                 }
-
             }
 
             /*
-            |--------------------------------------------------------------------------
-            | Rating Boost
-            |--------------------------------------------------------------------------
+            |--------------------------------------------------
+            | Personality Compatibility
+            |--------------------------------------------------
             */
 
-            $score += $coach->rating * 2;
+            if ($personality) {
+
+                $personalityString = is_array($personality)
+                    ? implode(' ', $personality)
+                    : $personality;
+
+                $style = is_array($coach->coaching_style)
+                    ? implode(' ', $coach->coaching_style)
+                    : ($coach->coaching_style ?? '');
+
+                $style = strtolower($style);
+                $personalityString = strtolower($personalityString);
+
+                if (str_contains($style, $personalityString)) {
+                    $score += 15;
+                }
+            }
+
+            /*
+            |--------------------------------------------------
+            | Rating Boost
+            |--------------------------------------------------
+            */
+
+            $score += ($coach->rating ?? 0) * 2;
+
+            /*
+            |--------------------------------------------------
+            | Experience Boost
+            |--------------------------------------------------
+            */
+
+            $score += ($coach->years_experience ?? 0);
+
+            /*
+            |--------------------------------------------------
+            | Store Result
+            |--------------------------------------------------
+            */
 
             $results[] = [
-                'coach' => $coach,
-                'score' => $score
+                'coachId' => $coach->id,
+                'coachName' => $coach->name,
+                'confidenceScore' => $score,
+                'matchReason' => "Strong alignment with your goals and responses.",
+                'coach' => $coach
             ];
-
         }
 
         /*
-        |--------------------------------------------------------------------------
+        |--------------------------------------------------
         | Sort Best Coaches
-        |--------------------------------------------------------------------------
+        |--------------------------------------------------
         */
 
         usort($results, function ($a, $b) {
-            return $b['score'] <=> $a['score'];
+            return $b['confidenceScore'] <=> $a['confidenceScore'];
         });
 
-        return array_slice($results, 0, 5);
-
+        return array_slice($results, 0, 8);
     }
-
 }

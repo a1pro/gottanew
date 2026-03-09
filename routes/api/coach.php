@@ -14,6 +14,6 @@ Route::prefix('coach')->group(function () {
     Route::apiResource('availability', AvailabilityController::class);
     Route::apiResource('packages', PackageController::class);
 
-    Route::post('/coach/match', [CoachMatchController::class, 'match']);
+    Route::post('/match', [CoachMatchController::class, 'match']);
 
 });

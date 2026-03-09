@@ -11,18 +11,27 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('guest_sessions', function (Blueprint $table) {
-        $table->id();
+       Schema::create('guest_sessions', function (Blueprint $table) {
 
-        $table->json('selected_goal');
-        $table->json('responses');
-        $table->json('ai_analysis')->nullable();
-        $table->json('recommended_coaches')->nullable();
+            $table->id();
 
-        $table->timestamp('expires_at')->nullable();
+            $table->string('session_id')->unique();
 
-        $table->timestamps();
-    });
+            $table->foreignId('user_id')->nullable()->constrained()->cascadeOnDelete();
+
+            $table->foreignId('goal_id')->nullable()->constrained('goals');
+
+            $table->json('responses')->nullable();
+
+            $table->json('ai_analysis')->nullable();
+
+            $table->json('recommended_coaches')->nullable();
+
+            $table->timestamp('expires_at')->nullable();
+
+            $table->timestamps();
+
+        });
     }
 
     /**
