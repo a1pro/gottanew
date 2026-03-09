@@ -19,8 +19,7 @@ return new class extends Migration
 
             $table->foreignId('user_id')->nullable()->constrained()->cascadeOnDelete();
 
-            $table->foreignId('goal_id')->nullable()->constrained('goals');
-
+             $table->foreignId('goal_id')->constrained()->cascadeOnDelete();
             $table->json('responses')->nullable();
 
             $table->json('ai_analysis')->nullable();
