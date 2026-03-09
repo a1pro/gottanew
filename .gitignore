@@ -1,4 +1,6 @@
 # Laravel specific
+
+
 /node_modules
 /public/hot
 /public/storage
@@ -15,6 +17,7 @@ Homestead.json
 Homestead.yaml
 
 # IDE
+/.env
 /.idea
 /.vscode
 /.fleet

@@ -17,6 +17,8 @@ return new class extends Migration
             ->nullable()
             ->constrained('users')
             ->cascadeOnDelete();
+        $table->string('guest_session_id')->nullable();
+    
         $table->foreignId('goal_id')
             ->constrained('goals');
         $table->foreignId('question_id')
