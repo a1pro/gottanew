@@ -10,7 +10,7 @@ Route::prefix('coach')->group(function () {
 
     Route::get('/profile', [CoachController::class, 'profile']);
     Route::put('/profile', [CoachController::class, 'update']);
-
+    Route::get('/coaches', [CoachController::class, 'index']);
     Route::apiResource('availability', AvailabilityController::class);
     Route::apiResource('packages', PackageController::class);
 
