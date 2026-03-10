@@ -11,6 +11,7 @@ use App\Models\Session\GuestSession;
 
 class CoachMatchController extends Controller
 {
+    
     public function match(Request $request)
     {
 
@@ -28,9 +29,19 @@ class CoachMatchController extends Controller
         |----------------------------------------------------------
         */
 
-        $responses = UserResponse::query()
-            ->when($userId, fn($q) => $q->where('user_id', $userId))
-            ->when(!$userId, fn($q) => $q->where('guest_session_id', $sessionId))
+     $responses = UserResponse::query()
+            ->when($userId, function ($q) use ($userId, $sessionId) {
+
+                $q->where('user_id', $userId);
+
+                if ($sessionId) {
+                    $q->orWhere('guest_session_id', $sessionId);
+                }
+
+            })
+            ->when(!$userId && $sessionId, function ($q) use ($sessionId) {
+                $q->where('guest_session_id', $sessionId);
+            })
             ->get()
             ->toArray();
 
