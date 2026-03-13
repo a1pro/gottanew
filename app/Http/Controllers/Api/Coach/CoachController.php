@@ -27,4 +27,10 @@ class CoachController extends BaseController
 
         return $this->success($coach, 'Profile updated');
     }
+
+    public function show($id)
+        {
+            $coach = Coach::findOrFail($id);
+            return $this->success($coach);
+        }
 }

@@ -6,11 +6,21 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\Coach\CoachingPackage;
 
+
 class PackageController extends Controller
 {
     public function index()
     {
         return CoachingPackage::all();
+    }
+
+     public function coachPackages($id)
+    {
+        $packages = CoachingPackage::where('coach_id', $id)
+            ->where('is_active', true)
+            ->get();
+
+        return response()->json($packages);
     }
 
     public function store(Request $request)
@@ -55,4 +65,6 @@ class PackageController extends Controller
             'message' => 'Package deleted'
         ]);
     }
+
+   
 }

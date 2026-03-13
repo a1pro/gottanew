@@ -3,31 +3,314 @@
 namespace App\Http\Controllers\Api\Client;
 
 use Illuminate\Http\Request;
-use App\Models\Session\CoachingSession;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use App\Http\Controllers\Api\BaseController;
+use App\Models\Session\CoachingSession;
+use App\Models\Session\SessionVideoDetail;
+use App\Models\Coach\Coach;
+use App\Models\Finance\UserWallet;
+use App\Models\Finance\Transaction;
 
 class SessionController extends BaseController
 {
     public function index(Request $request)
     {
+        $user = $request->user();
+
+        if (!$user) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthenticated',
+            ], 401);
+        }
+
         return $this->success(
-            $request->user()->clientSessions()->with('coach')->get()
+            $user->clientSessions()->with(['coach', 'videoDetail'])->latest()->get()
         );
     }
 
     public function store(Request $request)
     {
-        $request->validate([
-            'coach_id' => 'required|exists:coaches,id',
-            'scheduled_time' => 'required|date'
+        $user = $request->user();
+
+        if (!$user) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthenticated',
+            ], 401);
+        }
+
+        $validated = $request->validate([
+            'coach_id' => ['required', 'exists:coaches,id'],
+            'scheduled_time' => ['required', 'date'],
+            'duration_minutes' => ['required', 'integer', 'min:15', 'max:120'],
         ]);
 
-        $session = CoachingSession::create([
-            'client_id' => $request->user()->id,
-            'coach_id' => $request->coach_id,
-            'scheduled_time' => $request->scheduled_time
+        $coach = Coach::findOrFail($validated['coach_id']);
+
+        $coinCost = max(
+            1,
+            (int) round((($coach->hourly_coin_cost ?? 1) * $validated['duration_minutes']) / 60)
+        );
+
+        $wallet = UserWallet::firstOrCreate(
+            ['user_id' => $user->id],
+            [
+                'coin_balance' => 0,
+                'total_coins_purchased' => 0,
+                'total_coins_spent' => 0,
+            ]
+        );
+
+        if (!app()->environment('local') && $wallet->coin_balance < $coinCost) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Insufficient coins',
+            ], 422);
+        }
+
+        $room = $this->createDailyRoom();
+
+        if (empty($room['name']) || empty($room['url'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Could not create video room',
+            ], 500);
+        }
+
+        $session = DB::transaction(function () use ($user, $coach, $validated, $coinCost, $wallet, $room) {
+            $session = CoachingSession::create([
+                'client_id' => $user->id,
+                'coach_id' => $coach->id,
+                'duration_minutes' => $validated['duration_minutes'],
+                'scheduled_time' => $validated['scheduled_time'],
+                'status' => 'scheduled',
+                'price_amount' => $coinCost,
+                'price_currency' => 'COIN',
+            ]);
+
+            SessionVideoDetail::create([
+                'session_id' => $session->id,
+                'video_room_id' => $room['id'] ?? null,
+                'video_join_url' => $room['url'],
+                'daily_room_name' => $room['name'],
+                'room_created_at' => now(),
+            ]);
+
+            if (!app()->environment('local') && $coinCost > 0) {
+                $wallet->decrement('coin_balance', $coinCost);
+                $wallet->increment('total_coins_spent', $coinCost);
+
+                Transaction::create([
+                    'user_id' => $user->id,
+                    'coach_id' => $coach->id,
+                    'transaction_type' => 'coach_payment',
+                    'coin_amount' => $coinCost,
+                    'amount_currency' => 'COIN',
+                    'amount_fiat' => null,
+                    'status' => 'completed',
+                ]);
+            }
+
+            return $session->load(['coach', 'videoDetail']);
+        });
+
+        return response()->json([
+            'success' => true,
+            'data' => $session,
+        ]);
+    }
+
+    public function instant(Request $request)
+    {
+        $user = $request->user();
+
+        if (!$user) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthenticated',
+            ], 401);
+        }
+
+        $validated = $request->validate([
+            'coach_id' => ['required', 'exists:coaches,id'],
         ]);
 
-        return $this->success($session, 'Session booked');
+        $coach = Coach::findOrFail($validated['coach_id']);
+
+        if (!$coach->available_now) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Coach is not available right now',
+            ], 422);
+        }
+
+        $coinCost = app()->environment('local') ? 0 : 1;
+
+        $wallet = UserWallet::firstOrCreate(
+            ['user_id' => $user->id],
+            [
+                'coin_balance' => 0,
+                'total_coins_purchased' => 0,
+                'total_coins_spent' => 0,
+            ]
+        );
+
+        if (!app()->environment('local') && $wallet->coin_balance < $coinCost) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Insufficient coins',
+            ], 422);
+        }
+
+        $room = $this->createDailyRoom();
+
+        if (empty($room['name']) || empty($room['url'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Could not create video room',
+            ], 500);
+        }
+
+        $session = DB::transaction(function () use ($user, $coach, $coinCost, $wallet, $room) {
+            $session = CoachingSession::create([
+                'client_id' => $user->id,
+                'coach_id' => $coach->id,
+                'duration_minutes' => 15,
+                'scheduled_time' => now(),
+                'status' => 'in_progress',
+                'price_amount' => $coinCost,
+                'price_currency' => 'COIN',
+            ]);
+
+            SessionVideoDetail::create([
+                'session_id' => $session->id,
+                'video_room_id' => $room['id'] ?? null,
+                'video_join_url' => $room['url'],
+                'daily_room_name' => $room['name'],
+                'room_created_at' => now(),
+            ]);
+
+            if (!app()->environment('local') && $coinCost > 0) {
+                $wallet->decrement('coin_balance', $coinCost);
+                $wallet->increment('total_coins_spent', $coinCost);
+
+                Transaction::create([
+                    'user_id' => $user->id,
+                    'coach_id' => $coach->id,
+                    'transaction_type' => 'coach_payment',
+                    'coin_amount' => $coinCost,
+                    'amount_currency' => 'COIN',
+                    'amount_fiat' => null,
+                    'status' => 'completed',
+                ]);
+            }
+
+            return $session->load(['coach', 'videoDetail']);
+        });
+
+        return response()->json([
+            'success' => true,
+            'data' => $session,
+        ]);
+    }
+
+    public function show(Request $request, $id)
+    {
+        $user = $request->user();
+
+        if (!$user) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthenticated',
+            ], 401);
+        }
+
+        $session = CoachingSession::with([
+            'coach',
+            'client',
+            'videoDetail',
+        ])->findOrFail($id);
+
+        $isClient = $session->client_id === $user->id;
+        $isCoach = optional($session->coach)->user_id === $user->id;
+
+        if (!$isClient && !$isCoach) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthorized access to session',
+            ], 403);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $session,
+        ]);
+    }
+
+    // private function createDailyRoom(): array
+    //     {
+    //         $apiKey = env('DAILY_API_KEY');
+
+    //         if (!$apiKey) {
+    //             \Log::error('DAILY_API_KEY is missing');
+    //             return [];
+    //         }
+
+    //         $response = Http::withToken($apiKey)
+    //             ->post('https://api.daily.co/v1/rooms', [
+    //                 'name' => 'session_' . uniqid(),
+    //                 'properties' => [
+    //                     'max_participants' => 2,
+    //                 ],
+    //             ]);
+
+    //         if (!$response->successful()) {
+    //             \Log::error('Daily room creation failed', [
+    //                 'status' => $response->status(),
+    //                 'body' => $response->body(),
+    //             ]);
+    //             return [];
+    //         }
+
+    //         return $response->json();
+    //     }
+
+
+    private function createDailyRoom(): array
+    {
+        if (app()->environment('local')) {
+            return [
+                'id' => 'local-test-room',
+                'name' => 'local_test_room',
+                'url' => 'https://example.daily.co/local-test-room',
+            ];
+        }
+
+        $apiKey = env('DAILY_API_KEY');
+
+        if (!$apiKey) {
+            \Log::error('DAILY_API_KEY is missing');
+            return [];
+        }
+
+        $response = Http::withToken($apiKey)
+            ->post('https://api.daily.co/v1/rooms', [
+                'name' => 'session_' . uniqid(),
+                'properties' => [
+                    'max_participants' => 2,
+                ],
+            ]);
+
+        if (!$response->successful()) {
+            \Log::error('Daily room creation failed', [
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ]);
+            return [];
+        }
+
+        return $response->json();
     }
 }
