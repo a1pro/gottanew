@@ -1,0 +1,217 @@
+[20-Feb-2026 09:20:18 UTC] PHP Fatal error:  Uncaught ReflectionException: Class "view" does not exist in /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php:1122
+Stack trace:
+#0 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(1122): ReflectionClass->__construct()
+#1 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(933): Illuminate\Container\Container->build()
+#2 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1078): Illuminate\Container\Container->resolve()
+#3 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(864): Illuminate\Foundation\Application->resolve()
+#4 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1058): Illuminate\Container\Container->make()
+#5 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(1809): Illuminate\Foundation\Application->make()
+#6 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Routing/RoutingServiceProvider.php(177): Illuminate\Container\Container->offsetGet()
+#7 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(1115): Illuminate\Routing\RoutingServiceProvider->Illuminate\Routing\{closure}()
+#8 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(933): Illuminate\Container\Container->build()
+#9 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1078): Illuminate\Container\Container->resolve()
+#10 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(864): Illuminate\Foundation\Application->resolve()
+#11 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1058): Illuminate\Container\Container->make()
+#12 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/helpers.php(138): Illuminate\Foundation\Application->make()
+#13 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/helpers.php(851): app()
+#14 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Exceptions/Handler.php(987): response()
+#15 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Exceptions/Handler.php(839): Illuminate\Foundation\Exceptions\Handler->toIlluminateResponse()
+#16 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Exceptions/Handler.php(738): Illuminate\Foundation\Exceptions\Handler->prepareResponse()
+#17 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Exceptions/Handler.php(626): Illuminate\Foundation\Exceptions\Handler->renderExceptionResponse()
+#18 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Http/Kernel.php(574): Illuminate\Foundation\Exceptions\Handler->render()
+#19 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Http/Kernel.php(148): Illuminate\Foundation\Http\Kernel->renderException()
+#20 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1220): Illuminate\Foundation\Http\Kernel->handle()
+#21 /home/gottauser/gotta.a1professionals.net_public_html/public/index.php(20): Illuminate\Foundation\Application->handleRequest()
+#22 {main}
+
+Next Illuminate\Contracts\Container\BindingResolutionException: Target class [view] does not exist. in /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php:1124
+Stack trace:
+#0 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(933): Illuminate\Container\Container->build()
+#1 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1078): Illuminate\Container\Container->resolve()
+#2 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(864): Illuminate\Foundation\Application->resolve()
+#3 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1058): Illuminate\Container\Container->make()
+#4 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(1809): Illuminate\Foundation\Application->make()
+#5 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Routing/RoutingServiceProvider.php(177): Illuminate\Container\Container->offsetGet()
+#6 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(1115): Illuminate\Routing\RoutingServiceProvider->Illuminate\Routing\{closure}()
+#7 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(933): Illuminate\Container\Container->build()
+#8 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1078): Illuminate\Container\Container->resolve()
+#9 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(864): Illuminate\Foundation\Application->resolve()
+#10 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1058): Illuminate\Container\Container->make()
+#11 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/helpers.php(138): Illuminate\Foundation\Application->make()
+#12 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/helpers.php(851): app()
+#13 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Exceptions/Handler.php(987): response()
+#14 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Exceptions/Handler.php(839): Illuminate\Foundation\Exceptions\Handler->toIlluminateResponse()
+#15 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Exceptions/Handler.php(738): Illuminate\Foundation\Exceptions\Handler->prepareResponse()
+#16 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Exceptions/Handler.php(626): Illuminate\Foundation\Exceptions\Handler->renderExceptionResponse()
+#17 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Http/Kernel.php(574): Illuminate\Foundation\Exceptions\Handler->render()
+#18 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Http/Kernel.php(148): Illuminate\Foundation\Http\Kernel->renderException()
+#19 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1220): Illuminate\Foundation\Http\Kernel->handle()
+#20 /home/gottauser/gotta.a1professionals.net_public_html/public/index.php(20): Illuminate\Foundation\Application->handleRequest()
+#21 {main}
+  thrown in /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php on line 1124
+[20-Feb-2026 09:20:49 UTC] PHP Fatal error:  Uncaught ReflectionException: Class "view" does not exist in /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php:1122
+Stack trace:
+#0 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(1122): ReflectionClass->__construct()
+#1 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(933): Illuminate\Container\Container->build()
+#2 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1078): Illuminate\Container\Container->resolve()
+#3 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(864): Illuminate\Foundation\Application->resolve()
+#4 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1058): Illuminate\Container\Container->make()
+#5 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(1809): Illuminate\Foundation\Application->make()
+#6 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Routing/RoutingServiceProvider.php(177): Illuminate\Container\Container->offsetGet()
+#7 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(1115): Illuminate\Routing\RoutingServiceProvider->Illuminate\Routing\{closure}()
+#8 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(933): Illuminate\Container\Container->build()
+#9 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1078): Illuminate\Container\Container->resolve()
+#10 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(864): Illuminate\Foundation\Application->resolve()
+#11 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1058): Illuminate\Container\Container->make()
+#12 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/helpers.php(138): Illuminate\Foundation\Application->make()
+#13 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/helpers.php(851): app()
+#14 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Exceptions/Handler.php(987): response()
+#15 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Exceptions/Handler.php(839): Illuminate\Foundation\Exceptions\Handler->toIlluminateResponse()
+#16 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Exceptions/Handler.php(738): Illuminate\Foundation\Exceptions\Handler->prepareResponse()
+#17 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Exceptions/Handler.php(626): Illuminate\Foundation\Exceptions\Handler->renderExceptionResponse()
+#18 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Http/Kernel.php(574): Illuminate\Foundation\Exceptions\Handler->render()
+#19 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Http/Kernel.php(148): Illuminate\Foundation\Http\Kernel->renderException()
+#20 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1220): Illuminate\Foundation\Http\Kernel->handle()
+#21 /home/gottauser/gotta.a1professionals.net_public_html/public/index.php(20): Illuminate\Foundation\Application->handleRequest()
+#22 {main}
+
+Next Illuminate\Contracts\Container\BindingResolutionException: Target class [view] does not exist. in /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php:1124
+Stack trace:
+#0 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(933): Illuminate\Container\Container->build()
+#1 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1078): Illuminate\Container\Container->resolve()
+#2 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(864): Illuminate\Foundation\Application->resolve()
+#3 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1058): Illuminate\Container\Container->make()
+#4 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(1809): Illuminate\Foundation\Application->make()
+#5 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Routing/RoutingServiceProvider.php(177): Illuminate\Container\Container->offsetGet()
+#6 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(1115): Illuminate\Routing\RoutingServiceProvider->Illuminate\Routing\{closure}()
+#7 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(933): Illuminate\Container\Container->build()
+#8 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1078): Illuminate\Container\Container->resolve()
+#9 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(864): Illuminate\Foundation\Application->resolve()
+#10 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1058): Illuminate\Container\Container->make()
+#11 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/helpers.php(138): Illuminate\Foundation\Application->make()
+#12 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/helpers.php(851): app()
+#13 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Exceptions/Handler.php(987): response()
+#14 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Exceptions/Handler.php(839): Illuminate\Foundation\Exceptions\Handler->toIlluminateResponse()
+#15 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Exceptions/Handler.php(738): Illuminate\Foundation\Exceptions\Handler->prepareResponse()
+#16 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Exceptions/Handler.php(626): Illuminate\Foundation\Exceptions\Handler->renderExceptionResponse()
+#17 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Http/Kernel.php(574): Illuminate\Foundation\Exceptions\Handler->render()
+#18 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Http/Kernel.php(148): Illuminate\Foundation\Http\Kernel->renderException()
+#19 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1220): Illuminate\Foundation\Http\Kernel->handle()
+#20 /home/gottauser/gotta.a1professionals.net_public_html/public/index.php(20): Illuminate\Foundation\Application->handleRequest()
+#21 {main}
+  thrown in /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php on line 1124
+[20-Feb-2026 09:20:51 UTC] PHP Fatal error:  Uncaught ReflectionException: Class "view" does not exist in /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php:1122
+Stack trace:
+#0 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(1122): ReflectionClass->__construct()
+#1 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(933): Illuminate\Container\Container->build()
+#2 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1078): Illuminate\Container\Container->resolve()
+#3 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(864): Illuminate\Foundation\Application->resolve()
+#4 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1058): Illuminate\Container\Container->make()
+#5 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(1809): Illuminate\Foundation\Application->make()
+#6 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Routing/RoutingServiceProvider.php(177): Illuminate\Container\Container->offsetGet()
+#7 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(1115): Illuminate\Routing\RoutingServiceProvider->Illuminate\Routing\{closure}()
+#8 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(933): Illuminate\Container\Container->build()
+#9 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1078): Illuminate\Container\Container->resolve()
+#10 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(864): Illuminate\Foundation\Application->resolve()
+#11 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1058): Illuminate\Container\Container->make()
+#12 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/helpers.php(138): Illuminate\Foundation\Application->make()
+#13 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/helpers.php(851): app()
+#14 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Exceptions/Handler.php(987): response()
+#15 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Exceptions/Handler.php(839): Illuminate\Foundation\Exceptions\Handler->toIlluminateResponse()
+#16 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Exceptions/Handler.php(738): Illuminate\Foundation\Exceptions\Handler->prepareResponse()
+#17 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Exceptions/Handler.php(626): Illuminate\Foundation\Exceptions\Handler->renderExceptionResponse()
+#18 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Http/Kernel.php(574): Illuminate\Foundation\Exceptions\Handler->render()
+#19 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Http/Kernel.php(148): Illuminate\Foundation\Http\Kernel->renderException()
+#20 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1220): Illuminate\Foundation\Http\Kernel->handle()
+#21 /home/gottauser/gotta.a1professionals.net_public_html/public/index.php(20): Illuminate\Foundation\Application->handleRequest()
+#22 {main}
+
+Next Illuminate\Contracts\Container\BindingResolutionException: Target class [view] does not exist. in /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php:1124
+Stack trace:
+#0 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(933): Illuminate\Container\Container->build()
+#1 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1078): Illuminate\Container\Container->resolve()
+#2 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(864): Illuminate\Foundation\Application->resolve()
+#3 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1058): Illuminate\Container\Container->make()
+#4 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(1809): Illuminate\Foundation\Application->make()
+#5 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Routing/RoutingServiceProvider.php(177): Illuminate\Container\Container->offsetGet()
+#6 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(1115): Illuminate\Routing\RoutingServiceProvider->Illuminate\Routing\{closure}()
+#7 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(933): Illuminate\Container\Container->build()
+#8 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1078): Illuminate\Container\Container->resolve()
+#9 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(864): Illuminate\Foundation\Application->resolve()
+#10 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1058): Illuminate\Container\Container->make()
+#11 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/helpers.php(138): Illuminate\Foundation\Application->make()
+#12 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/helpers.php(851): app()
+#13 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Exceptions/Handler.php(987): response()
+#14 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Exceptions/Handler.php(839): Illuminate\Foundation\Exceptions\Handler->toIlluminateResponse()
+#15 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Exceptions/Handler.php(738): Illuminate\Foundation\Exceptions\Handler->prepareResponse()
+#16 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Exceptions/Handler.php(626): Illuminate\Foundation\Exceptions\Handler->renderExceptionResponse()
+#17 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Http/Kernel.php(574): Illuminate\Foundation\Exceptions\Handler->render()
+#18 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Http/Kernel.php(148): Illuminate\Foundation\Http\Kernel->renderException()
+#19 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1220): Illuminate\Foundation\Http\Kernel->handle()
+#20 /home/gottauser/gotta.a1professionals.net_public_html/public/index.php(20): Illuminate\Foundation\Application->handleRequest()
+#21 {main}
+  thrown in /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php on line 1124
+[20-Feb-2026 09:36:59 UTC] PHP Fatal error:  Uncaught ReflectionException: Class "view" does not exist in /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php:1122
+Stack trace:
+#0 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(1122): ReflectionClass->__construct()
+#1 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(933): Illuminate\Container\Container->build()
+#2 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1078): Illuminate\Container\Container->resolve()
+#3 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(864): Illuminate\Foundation\Application->resolve()
+#4 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1058): Illuminate\Container\Container->make()
+#5 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(1809): Illuminate\Foundation\Application->make()
+#6 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Routing/RoutingServiceProvider.php(177): Illuminate\Container\Container->offsetGet()
+#7 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(1115): Illuminate\Routing\RoutingServiceProvider->Illuminate\Routing\{closure}()
+#8 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(933): Illuminate\Container\Container->build()
+#9 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1078): Illuminate\Container\Container->resolve()
+#10 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(864): Illuminate\Foundation\Application->resolve()
+#11 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1058): Illuminate\Container\Container->make()
+#12 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/helpers.php(138): Illuminate\Foundation\Application->make()
+#13 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/helpers.php(851): app()
+#14 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Exceptions/Handler.php(987): response()
+#15 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Exceptions/Handler.php(839): Illuminate\Foundation\Exceptions\Handler->toIlluminateResponse()
+#16 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Exceptions/Handler.php(738): Illuminate\Foundation\Exceptions\Handler->prepareResponse()
+#17 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Exceptions/Handler.php(626): Illuminate\Foundation\Exceptions\Handler->renderExceptionResponse()
+#18 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Http/Kernel.php(574): Illuminate\Foundation\Exceptions\Handler->render()
+#19 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Http/Kernel.php(148): Illuminate\Foundation\Http\Kernel->renderException()
+#20 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1220): Illuminate\Foundation\Http\Kernel->handle()
+#21 /home/gottauser/gotta.a1professionals.net_public_html/public/index.php(20): Illuminate\Foundation\Application->handleRequest()
+#22 {main}
+
+Next Illuminate\Contracts\Container\BindingResolutionException: Target class [view] does not exist. in /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php:1124
+Stack trace:
+#0 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(933): Illuminate\Container\Container->build()
+#1 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1078): Illuminate\Container\Container->resolve()
+#2 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(864): Illuminate\Foundation\Application->resolve()
+#3 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1058): Illuminate\Container\Container->make()
+#4 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(1809): Illuminate\Foundation\Application->make()
+#5 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Routing/RoutingServiceProvider.php(177): Illuminate\Container\Container->offsetGet()
+#6 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(1115): Illuminate\Routing\RoutingServiceProvider->Illuminate\Routing\{closure}()
+#7 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(933): Illuminate\Container\Container->build()
+#8 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1078): Illuminate\Container\Container->resolve()
+#9 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php(864): Illuminate\Foundation\Application->resolve()
+#10 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1058): Illuminate\Container\Container->make()
+#11 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/helpers.php(138): Illuminate\Foundation\Application->make()
+#12 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/helpers.php(851): app()
+#13 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Exceptions/Handler.php(987): response()
+#14 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Exceptions/Handler.php(839): Illuminate\Foundation\Exceptions\Handler->toIlluminateResponse()
+#15 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Exceptions/Handler.php(738): Illuminate\Foundation\Exceptions\Handler->prepareResponse()
+#16 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Exceptions/Handler.php(626): Illuminate\Foundation\Exceptions\Handler->renderExceptionResponse()
+#17 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Http/Kernel.php(574): Illuminate\Foundation\Exceptions\Handler->render()
+#18 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Http/Kernel.php(148): Illuminate\Foundation\Http\Kernel->renderException()
+#19 /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1220): Illuminate\Foundation\Http\Kernel->handle()
+#20 /home/gottauser/gotta.a1professionals.net_public_html/public/index.php(20): Illuminate\Foundation\Application->handleRequest()
+#21 {main}
+  thrown in /home/gottauser/gotta.a1professionals.net_public_html/vendor/laravel/framework/src/Illuminate/Container/Container.php on line 1124
+[02-Mar-2026 11:44:26 UTC] PHP Fatal error:  Cannot redeclare App\Models\User::scopeByRole() in /home/gottauser/gotta.a1professionals.net_public_html/app/Models/User.php on line 220
+[02-Mar-2026 11:44:41 UTC] PHP Fatal error:  Cannot redeclare App\Models\User::scopeByRole() in /home/gottauser/gotta.a1professionals.net_public_html/app/Models/User.php on line 220
+[02-Mar-2026 11:55:35 UTC] PHP Fatal error:  Cannot redeclare App\Models\User::scopeByRole() in /home/gottauser/gotta.a1professionals.net_public_html/app/Models/User.php on line 220
+[02-Mar-2026 11:55:44 UTC] PHP Fatal error:  Cannot redeclare App\Models\User::scopeByRole() in /home/gottauser/gotta.a1professionals.net_public_html/app/Models/User.php on line 220
+[02-Mar-2026 12:44:09 UTC] PHP Fatal error:  Cannot redeclare App\Models\User::scopeByRole() in /home/gottauser/gotta.a1professionals.net_public_html/app/Models/User.php on line 220
+[02-Mar-2026 14:53:42 UTC] PHP Fatal error:  Cannot redeclare App\Models\User::scopeByRole() in /home/gottauser/gotta.a1professionals.net_public_html/app/Models/User.php on line 220
+[02-Mar-2026 14:54:14 UTC] PHP Fatal error:  Cannot redeclare App\Models\User::scopeByRole() in /home/gottauser/gotta.a1professionals.net_public_html/app/Models/User.php on line 220
+[03-Mar-2026 07:24:03 UTC] PHP Fatal error:  Cannot redeclare App\Models\User::scopeByRole() in /home/gottauser/gotta.a1professionals.net_public_html/app/Models/User.php on line 220
+[03-Mar-2026 07:24:07 UTC] PHP Fatal error:  Cannot redeclare App\Models\User::scopeByRole() in /home/gottauser/gotta.a1professionals.net_public_html/app/Models/User.php on line 220
+[03-Mar-2026 07:25:50 UTC] PHP Fatal error:  Cannot redeclare App\Models\User::scopeByRole() in /home/gottauser/gotta.a1professionals.net_public_html/app/Models/User.php on line 220
+[03-Mar-2026 07:25:52 UTC] PHP Fatal error:  Cannot redeclare App\Models\User::scopeByRole() in /home/gottauser/gotta.a1professionals.net_public_html/app/Models/User.php on line 220
+[03-Mar-2026 09:38:16 UTC] PHP Fatal error:  Cannot redeclare App\Models\User::scopeByRole() in /home/gottauser/gotta.a1professionals.net_public_html/app/Models/User.php on line 220
+[03-Mar-2026 10:04:10 UTC] PHP Fatal error:  Cannot redeclare App\Models\User::scopeByRole() in /home/gottauser/gotta.a1professionals.net_public_html/app/Models/User.php on line 220
