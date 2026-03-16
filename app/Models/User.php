@@ -85,12 +85,11 @@ class User extends Authenticatable
     }
 
     // If user is a Coach
-    public function coachProfile()
+   public function coachProfile()
     {
-        return $this->hasOne(\App\Models\Coach\Coach::class);
+        return $this->hasOne(\App\Models\Coach\Coach::class, 'user_id');
     }
-
-    // Session Participants
+        // Session Participants
     public function sessionParticipations()
     {
         return $this->hasMany(
