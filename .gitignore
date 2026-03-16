@@ -67,3 +67,4 @@ Thumbs.db
 *.lock
 composer.lock
 .env
+.env
