@@ -1,5 +1,6 @@
 <?php
 
+use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -16,12 +17,19 @@ return Application::configure(basePath: dirname(__DIR__))
             'role' => \App\Http\Middleware\CheckRole::class,
             'cors' => \App\Http\Middleware\Cors::class,
         ]);
-        
-        // Add cors to api middleware group
+
         $middleware->api(prepend: [
             \App\Http\Middleware\Cors::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {
-        //
-    })->create();
+        $exceptions->render(function (AuthenticationException $e, $request) {
+            if ($request->is('api/*') || $request->expectsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthenticated',
+                ], 401);
+            }
+        });
+    })
+    ->create();

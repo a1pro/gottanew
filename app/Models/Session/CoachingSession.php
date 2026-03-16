@@ -16,6 +16,8 @@ class CoachingSession extends Model
         'duration_minutes',
         'price_amount',
         'price_currency',
+        'client_notes',
+        'coach_notes',
     ];
 
     protected $casts = [
@@ -35,5 +37,10 @@ class CoachingSession extends Model
     public function videoDetail()
     {
         return $this->hasOne(\App\Models\Session\SessionVideoDetail::class, 'session_id');
+    }
+
+    public function stateLogs()
+    {
+        return $this->hasMany(SessionStateLog::class, 'session_id');
     }
 }

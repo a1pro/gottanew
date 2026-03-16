@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\Coach\CoachController;
 use App\Http\Controllers\Api\Coach\AvailabilityController;
 use App\Http\Controllers\Api\Coach\PackageController;
 use App\Http\Controllers\Api\Coach\CoachMatchController;
+use App\Http\Controllers\Api\Coach\SessionController;
 
 Route::prefix('coach')->group(function () {
 
@@ -18,4 +19,11 @@ Route::prefix('coach')->group(function () {
 
     Route::post('/match', [CoachMatchController::class, 'match']);
 
+});
+
+Route::prefix('coach')->middleware('auth:sanctum')->group(function () {
+    Route::get('/sessions', [SessionController::class, 'index']);
+    Route::get('/sessions/{id}', [SessionController::class, 'show']);
+    Route::put('/sessions/{id}/notes', [SessionController::class, 'saveNotes']);
+    Route::post('/sessions/{id}/start', [SessionController::class, 'start']);
 });

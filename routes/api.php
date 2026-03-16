@@ -19,6 +19,6 @@ Route::prefix('v1')
     require __DIR__. '/api/responses.php';
     require __DIR__. '/api/personality.php';
     require __DIR__. '/api/ai.php';  
-
+   require __DIR__ . '/api/session.php';
     
 });

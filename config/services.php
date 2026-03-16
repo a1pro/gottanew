@@ -34,5 +34,8 @@ return [
             'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),
         ],
     ],
+   'daily' => [
+        'api_key' => env('DAILY_API_KEY'),
+    ],
 
 ];
