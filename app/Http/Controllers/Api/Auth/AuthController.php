@@ -73,7 +73,19 @@ class AuthController extends BaseController
 
     public function me(Request $request)
     {
-        return $this->success($request->user());
+        $user = $request->user();
+
+        $roles = UserRole::where('user_id', $user->id)
+            ->pluck('role')
+            ->values();
+
+        return $this->success([
+            'id' => $user->id,
+            'name' => $user->name,
+            'email' => $user->email,
+            'roles' => $roles,
+            'primary_role' => $roles->first(),
+        ]);
     }
 
     public function logout(Request $request)
