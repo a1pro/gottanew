@@ -25,7 +25,7 @@ class AdminController extends BaseController
     public function coaches()
     {
         return $this->success(
-            Coach::latest()->paginate(20)
+            Coach::with('coachApplication')->latest()->paginate(20)
         );
     }
 
@@ -191,9 +191,63 @@ class AdminController extends BaseController
     public function sessions()
     {
         return $this->success(
-            CoachingSession::with(['client', 'coach', 'videoDetail'])
+            CoachingSession::with(['client', 'coach', 'videoDetail', 'recording'])
                 ->latest()
                 ->paginate(20)
         );
+    }
+
+    public function failedSessions()
+    {
+        return $this->success(
+            CoachingSession::with(['client', 'coach', 'videoDetail', 'recording'])
+                ->whereIn('status', ['failed', 'interrupted', 'cancelled', 'no_show'])
+                ->latest()
+                ->paginate(20)
+        );
+    }
+
+    public function transcripts(Request $request)
+    {
+        $query = CoachingSession::with(['client', 'coach', 'recording'])
+            ->whereHas('recording');
+
+        if ($request->filled('q')) {
+            $q = trim((string) $request->query('q'));
+
+            $query->where(function ($builder) use ($q) {
+                $builder
+                    ->whereHas('client', function ($sub) use ($q) {
+                        $sub->where('name', 'like', "%{$q}%")
+                            ->orWhere('email', 'like', "%{$q}%");
+                    })
+                    ->orWhereHas('coach', function ($sub) use ($q) {
+                        $sub->where('name', 'like', "%{$q}%")
+                            ->orWhere('title', 'like', "%{$q}%");
+                    })
+                    ->orWhereHas('recording', function ($sub) use ($q) {
+                        $sub->where('transcript', 'like', "%{$q}%")
+                            ->orWhere('ai_summary', 'like', "%{$q}%")
+                            ->orWhere('pre_session_summary', 'like', "%{$q}%")
+                            ->orWhere('post_session_summary', 'like', "%{$q}%");
+                    });
+            });
+        }
+
+        if ($request->filled('status')) {
+            $query->where('status', (string) $request->query('status'));
+        }
+
+        return $this->success(
+            $query->latest()->paginate(15)
+        );
+    }
+
+    public function transcript($id)
+    {
+        $session = CoachingSession::with(['client', 'coach', 'videoDetail', 'recording'])
+            ->findOrFail($id);
+
+        return $this->success($session);
     }
 }

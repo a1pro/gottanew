@@ -48,4 +48,9 @@ class CoachingSession extends Model
     {
         return $this->hasMany(\App\Models\Finance\Transaction::class, 'session_id');
     }
+
+    public function recording()
+    {
+        return $this->hasOne(SessionRecording::class, 'session_id');
+    }
 }

@@ -9,4 +9,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/sessions/{id}/state', [SessionPortalController::class, 'updateState']);
     Route::put('/sessions/{id}/notes', [SessionPortalController::class, 'saveNotes']);
     Route::post('/sessions/{id}/end', [SessionPortalController::class, 'end']);
+
+    Route::post('/sessions/{id}/consent', [SessionPortalController::class, 'saveConsent']);
+    Route::put('/sessions/{id}/recording', [SessionPortalController::class, 'updateRecording']);
 });
