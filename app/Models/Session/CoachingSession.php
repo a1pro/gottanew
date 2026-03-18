@@ -43,4 +43,9 @@ class CoachingSession extends Model
     {
         return $this->hasMany(SessionStateLog::class, 'session_id');
     }
+
+    public function transactions()
+    {
+        return $this->hasMany(\App\Models\Finance\Transaction::class, 'session_id');
+    }
 }

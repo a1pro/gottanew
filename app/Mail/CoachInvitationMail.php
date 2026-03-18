@@ -24,8 +24,11 @@ class CoachInvitationMail extends Mailable
         $this->email = $email;
         $this->token = $token;
 
+        // $this->url = config('app.frontend_url') .
+        //     "/coach-set-password?token={$token}&email={$email}";
+
         $this->url = config('app.frontend_url') .
-            "/coach-set-password?token={$token}&email={$email}";
+    "/coach-onboard?token={$token}";
     }
 
     /**
