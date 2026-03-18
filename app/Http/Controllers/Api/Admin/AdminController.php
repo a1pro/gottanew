@@ -2,16 +2,18 @@
 
 namespace App\Http\Controllers\Api\Admin;
 
-use App\Models\User;
-use App\Models\Core\UserRole;
+use App\Http\Controllers\Api\BaseController;
+use App\Mail\CoachInvitationMail;
 use App\Models\Coach\Coach;
 use App\Models\Coach\PendingCoachApplication;
-use App\Mail\CoachInvitationMail;
+use App\Models\Core\UserRole;
+use App\Models\Session\CoachingSession;
+use App\Models\User;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
-use Illuminate\Support\Facades\Hash;
-use App\Http\Controllers\Api\BaseController;
 
 class AdminController extends BaseController
 {
@@ -20,192 +22,178 @@ class AdminController extends BaseController
         return $this->success(User::latest()->paginate(20));
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Approved Coaches
-    |--------------------------------------------------------------------------
-    */
-
     public function coaches()
-{
-    try {
-
-        $coaches = Coach::latest()->paginate(20);
-
-        return response()->json([
-            'coaches' => $coaches->items(),
-            'pagination' => [
-                'current_page' => $coaches->currentPage(),
-                'per_page' => $coaches->perPage(),
-                'total' => $coaches->total(),
-                'last_page' => $coaches->lastPage(),
-            ]
-        ]);
-
-    } catch (\Exception $e) {
-
-        return response()->json([
-            'error' => $e->getMessage()
-        ], 500);
+    {
+        return $this->success(
+            Coach::latest()->paginate(20)
+        );
     }
-}
-
-    /*
-    |--------------------------------------------------------------------------
-    | Pending Coach Applications
-    |--------------------------------------------------------------------------
-    */
 
     public function pendingApplications()
     {
         return $this->success(
-            PendingCoachApplication::where('status', 'pending')
+            PendingCoachApplication::whereIn('status', ['pending', 'invited'])
                 ->latest()
                 ->paginate(20)
         );
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Approve Coach Application
-    |--------------------------------------------------------------------------
-    */
-
-   public function approveApplication($id)
-{
-    $application = PendingCoachApplication::findOrFail($id);
-
-    DB::beginTransaction();
-
-    try {
-
-        /*
-        |--------------------------------------------------------------------------
-        | 1️⃣ Create or get existing user
-        |--------------------------------------------------------------------------
-        */
-
-        
-        $user = User::firstOrCreate(
-            ['email' => $application->email],
-            [
-                'name' => $application->name,
-                'password' => Hash::make(Str::random(16)) // temporary password
-            ]
-        );
-
-        /*
-        |--------------------------------------------------------------------------
-        | 2️⃣ Assign coach role
-        |--------------------------------------------------------------------------
-        */
-
-        UserRole::firstOrCreate([
-            'user_id' => $user->id,
-            'role' => 'coach'
+    public function inviteCoach(Request $request)
+    {
+        $validated = $request->validate([
+            'email' => ['required', 'email'],
         ]);
 
-        /*
-        |--------------------------------------------------------------------------
-        | 3️⃣ Create coach profile
-        |--------------------------------------------------------------------------
-        */
-        $coach = Coach::firstOrCreate(
-            ['user_id' => $user->id],
-            [
-                'name' => $application->name,
-                'email' => $application->email,
-                'title' => $application->title ?? 'Coach',
-                'bio' => $application->bio ?? 'Coach profile will be updated soon.',
-                'years_experience' => $application->years_experience ?? 0,
-                'specialties' => $application->specialties ?? [],
-                'similar_experiences' => [],
-                'rating' => 0,
-                'total_reviews' => 0,
-                'availability_hours' => null,
-                'timezone' => 'UTC',
-                'social_links' => [],
-                'is_active' => true,
-                'available_now' => false,
-                'notification_email' => $application->email,
-                'notification_phone' => null,
-                'coaching_expertise' => null,
-                'coaching_style' => null,
-                'client_challenge_example' => null,
-                'personal_experiences' => null,
-                'hourly_rate_amount' => 0,
-                'hourly_rate_currency' => 'USD',
-                'hourly_coin_cost' => 0,
-                'booking_buffer_minutes' => 0,
-                'max_session_duration' => 60,
-                'min_session_duration' => 30,
-                'immediate_availability' => false,
-                'response_preference_minutes' => 60
-            ]
-        );
+        $email = strtolower(trim($validated['email']));
 
-        /*
-        |--------------------------------------------------------------------------
-        | 4️⃣ Mark application approved
-        |--------------------------------------------------------------------------
-        */
+        DB::beginTransaction();
 
-        $application->update([
-            'status' => 'approved'
-        ]);
+        try {
+            $user = User::firstOrCreate(
+                ['email' => $email],
+                [
+                    'name' => Str::headline(Str::before($email, '@')),
+                    'password' => Hash::make(Str::random(32)),
+                ]
+            );
 
-        /*
-        |--------------------------------------------------------------------------
-        | 5️⃣ Generate password setup token
-        |--------------------------------------------------------------------------
-        */
+            UserRole::firstOrCreate([
+                'user_id' => $user->id,
+                'role' => 'coach',
+            ]);
 
-        $token = Str::random(60);
+            PendingCoachApplication::updateOrCreate(
+                ['email' => $email],
+                [
+                    'name' => $user->name,
+                    'phone' => null,
+                    'experience' => 'Pending onboarding',
+                    'specialties' => [],
+                    'message' => 'Coach invited by admin',
+                    'status' => 'invited',
+                ]
+            );
 
-        DB::table('password_reset_tokens')->updateOrInsert(
-            ['email' => $user->email],
-            [
-                'token' => bcrypt($token),
-                'created_at' => now()
-            ]
-        );
+            $token = Str::random(60);
 
-        /*
-        |--------------------------------------------------------------------------
-        | 6️⃣ Send invitation email
-        |--------------------------------------------------------------------------
-        */
+            DB::table('password_reset_tokens')->updateOrInsert(
+                ['email' => $email],
+                [
+                    'token' => bcrypt($token),
+                    'created_at' => now(),
+                ]
+            );
 
-        Mail::to($user->email)->send(
-            new CoachInvitationMail($user->email, $token)
-        );
+            Mail::to($email)->send(new CoachInvitationMail($email, $token));
 
-        DB::commit();
+            DB::commit();
 
-        return $this->success([
-            'message' => 'Coach approved and invitation email sent.',
-            'coach' => $coach
-        ]);
+            return $this->success([
+                'email' => $email,
+            ], 'Invitation sent successfully');
+        } catch (\Throwable $e) {
+            DB::rollBack();
 
-    } catch (\Exception $e) {
-
-        DB::rollBack();
-
-        return response()->json([
-            'message' => 'Failed to approve coach',
-            'error' => $e->getMessage()
-        ], 500);
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to send invitation',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
     }
-}
 
-    /*
-    |--------------------------------------------------------------------------
-    | Sessions
-    |--------------------------------------------------------------------------
-    */
+    public function approveApplication($id)
+    {
+        $application = PendingCoachApplication::findOrFail($id);
+
+        DB::beginTransaction();
+
+        try {
+            $user = User::firstOrCreate(
+                ['email' => $application->email],
+                [
+                    'name' => $application->name,
+                    'password' => Hash::make(Str::random(16)),
+                ]
+            );
+
+            UserRole::firstOrCreate([
+                'user_id' => $user->id,
+                'role' => 'coach',
+            ]);
+
+            $coach = Coach::firstOrCreate(
+                ['user_id' => $user->id],
+                [
+                    'name' => $application->name,
+                    'title' => 'Coach',
+                    'bio' => $application->message ?: 'Coach profile will be updated during onboarding.',
+                    'years_experience' => is_numeric($application->experience) ? (int) $application->experience : 1,
+                    'specialties' => $application->specialties ?: [],
+                    'similar_experiences' => [],
+                    'rating' => 0,
+                    'total_reviews' => 0,
+                    'availability_hours' => null,
+                    'timezone' => 'UTC',
+                    'social_links' => [],
+                    'is_active' => true,
+                    'available_now' => false,
+                    'notification_email' => $application->email,
+                    'notification_phone' => null,
+                    'coaching_expertise' => null,
+                    'coaching_style' => null,
+                    'client_challenge_example' => null,
+                    'personal_experiences' => null,
+                    'hourly_rate_amount' => 100,
+                    'hourly_rate_currency' => 'USD',
+                    'hourly_coin_cost' => 4,
+                    'booking_buffer_minutes' => 0,
+                    'max_session_duration' => 15,
+                    'min_session_duration' => 15,
+                    'immediate_availability' => false,
+                    'response_preference_minutes' => 60,
+                ]
+            );
+
+            $application->update([
+                'status' => 'approved',
+            ]);
+
+            $token = Str::random(60);
+
+            DB::table('password_reset_tokens')->updateOrInsert(
+                ['email' => $user->email],
+                [
+                    'token' => bcrypt($token),
+                    'created_at' => now(),
+                ]
+            );
+
+            Mail::to($user->email)->send(
+                new CoachInvitationMail($user->email, $token)
+            );
+
+            DB::commit();
+
+            return $this->success([
+                'coach' => $coach,
+            ], 'Coach approved and invitation email sent.');
+        } catch (\Throwable $e) {
+            DB::rollBack();
+
+            return response()->json([
+                'message' => 'Failed to approve coach',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
 
     public function sessions()
     {
-        return $this->success(CoachingSession::latest()->paginate(20));
+        return $this->success(
+            CoachingSession::with(['client', 'coach', 'videoDetail'])
+                ->latest()
+                ->paginate(20)
+        );
     }
 }

@@ -10,6 +10,8 @@ use App\Http\Controllers\Api\Coach\SessionController;
 Route::prefix('coach')->group(function () {
     Route::get('/coaches', [CoachController::class, 'index']);
     Route::get('/coaches/{id}', [CoachController::class, 'show']);
+    Route::get('/invitation/{token}', [CoachController::class, 'invitation']);
+    Route::post('/onboarding/complete', [CoachController::class, 'completeOnboarding']);
     Route::apiResource('availability', AvailabilityController::class);
     Route::get('/coaches/{id}/packages', [PackageController::class, 'coachPackages']);
     Route::apiResource('packages', PackageController::class);
