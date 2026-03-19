@@ -1,8 +1,6 @@
 <?php
 namespace App\Models\Coach;
-
 use Illuminate\Database\Eloquent\Model;
-
 class Coach extends Model
 {
     protected $fillable = [
@@ -27,33 +25,20 @@ class Coach extends Model
         'available_now' => 'boolean'
     ];
 
-    /*
-    |--------------------------------------------------------------------------
-    | Sessions
-    |--------------------------------------------------------------------------
-    */
-
     public function sessions()
     {
         return $this->hasMany(\App\Models\Session\CoachingSession::class);
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Packages
-    |--------------------------------------------------------------------------
-    */
 
     public function packages()
     {
         return $this->hasMany(CoachingPackage::class);
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Pending Application Relation
-    |--------------------------------------------------------------------------
-    */
+    public function availabilities()
+    {
+        return $this->hasMany(CoachAvailability::class, 'coach_id');
+    }
 
     public function coachApplication()
     {
