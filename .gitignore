@@ -17,7 +17,6 @@ Homestead.json
 Homestead.yaml
 
 # IDE
-/.env
 /.idea
 /.vscode
 /.fleet
@@ -66,5 +65,4 @@ Thumbs.db
 *.lock
 *.lock
 composer.lock
-.env
-.env
+config.bat
