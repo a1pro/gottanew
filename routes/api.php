@@ -7,7 +7,7 @@ Route::prefix('v1')
     ->middleware('cors')
     ->group(function () {
 
-    // Include all route files
+    // Include all route filesS
     require __DIR__ . '/api/auth.php';
     require __DIR__ . '/api/coach.php';
     require __DIR__ . '/api/client.php';
