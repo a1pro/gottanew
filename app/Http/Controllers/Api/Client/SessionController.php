@@ -258,7 +258,7 @@ class SessionController extends BaseController
 
     private function createDailyRoom(): array
     {
-        if (app()->environment('local') || filter_var(env('DAILY_USE_FAKE_ROOM', false), FILTER_VALIDATE_BOOLEAN)) {
+        if (app()->environment('local') && filter_var(env('DAILY_USE_FAKE_ROOM', true), FILTER_VALIDATE_BOOLEAN)) {
             return [
                 'id' => 'local-test-room',
                 'name' => 'local_test_room',

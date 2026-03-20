@@ -5,6 +5,8 @@ use Illuminate\Database\Eloquent\Model;
 
 class CoachAvailability extends Model
 {
+
+    protected $table = 'coach_availability';
     protected $fillable = [
         'coach_id','day_of_week','start_time',
         'end_time','timezone','is_active'
