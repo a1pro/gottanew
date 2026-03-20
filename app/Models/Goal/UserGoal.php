@@ -6,13 +6,18 @@ use Illuminate\Database\Eloquent\Model;
 class UserGoal extends Model
 {
     protected $fillable = [
-        'user_id','title','description',
-        'category','progress_percentage',
-        'status','target_date','source_session_id'
+        'user_id',
+        'title',
+        'description',
+        'category',
+        'progress_percentage',
+        'status',
+        'target_date',
+        'source_session_id',
     ];
 
     protected $casts = [
-        'target_date' => 'datetime'
+        'target_date' => 'datetime',
     ];
 
     public function user()
@@ -22,6 +27,11 @@ class UserGoal extends Model
 
     public function session()
     {
-        return $this->belongsTo(\App\Models\Session\CoachingSession::class,'source_session_id');
+        return $this->belongsTo(\App\Models\Session\CoachingSession::class, 'source_session_id');
+    }
+
+    public function tasks()
+    {
+        return $this->hasMany(UserTask::class, 'goal_id');
     }
 }
