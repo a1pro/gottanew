@@ -11,6 +11,7 @@ use App\Models\Session\SessionStateLog;
 use App\Models\Session\SessionVideoDetail;
 use App\Services\Coach\CoachAvailabilityService;
 use App\Services\Communication\NotificationService;
+use App\Support\Timezone;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -51,9 +52,11 @@ class SessionController extends BaseController
         $validated = $request->validate([
             'coach_id' => ['required', 'exists:coaches,id'],
             'scheduled_time' => ['required', 'date', 'after:now'],
-            'viewer_timezone' => ['required', 'timezone'],
+            'viewer_timezone' => ['required', 'string', 'max:100'],
             'duration_minutes' => ['nullable', 'integer', 'in:15'],
         ]);
+
+        $validated['viewer_timezone'] = Timezone::normalize($validated['viewer_timezone']);
 
         $coach = Coach::findOrFail($validated['coach_id']);
 

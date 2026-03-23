@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\BaseController;
 use App\Models\Coach\Coach;
 use App\Models\Coach\CoachAvailability;
 use App\Services\Coach\CoachAvailabilityService;
+use App\Support\Timezone;
 use Illuminate\Http\Request;
 
 class AvailabilityController extends BaseController
@@ -27,11 +28,11 @@ class AvailabilityController extends BaseController
     {
         $validated = $request->validate([
             'date' => ['required', 'date_format:Y-m-d'],
-            'viewer_timezone' => ['nullable', 'timezone'],
+            'viewer_timezone' => ['nullable', 'string', 'max:100'],
         ]);
 
         $coach = Coach::findOrFail($coachId);
-        $viewerTimezone = $validated['viewer_timezone'] ?? 'UTC';
+        $viewerTimezone = Timezone::normalize($validated['viewer_timezone'] ?? null);
 
         return $this->success([
             'date' => $validated['date'],
@@ -62,9 +63,11 @@ class AvailabilityController extends BaseController
             'day_of_week' => ['required', 'integer', 'min:0', 'max:6'],
             'start_time' => ['required', 'date_format:H:i'],
             'end_time' => ['required', 'date_format:H:i'],
-            'timezone' => ['nullable', 'timezone'],
+            'timezone' => ['nullable', 'string', 'max:100'],
             'is_active' => ['nullable', 'boolean'],
         ]);
+
+        $normalizedTimezone = Timezone::normalize($validated['timezone'] ?? null, $coach->timezone ?: 'UTC');
 
         if ($validated['end_time'] <= $validated['start_time']) {
             return $this->error('End time must be after start time.', 422);
@@ -84,7 +87,7 @@ class AvailabilityController extends BaseController
             'day_of_week' => (int) $validated['day_of_week'],
             'start_time' => $validated['start_time'],
             'end_time' => $validated['end_time'],
-            'timezone' => $validated['timezone'] ?? ($coach->timezone ?: 'UTC'),
+            'timezone' => $normalizedTimezone,
             'is_active' => $validated['is_active'] ?? true,
         ]);
 
@@ -100,9 +103,11 @@ class AvailabilityController extends BaseController
             'day_of_week' => ['required', 'integer', 'min:0', 'max:6'],
             'start_time' => ['required', 'date_format:H:i'],
             'end_time' => ['required', 'date_format:H:i'],
-            'timezone' => ['nullable', 'timezone'],
+            'timezone' => ['nullable', 'string', 'max:100'],
             'is_active' => ['nullable', 'boolean'],
         ]);
+
+        $normalizedTimezone = Timezone::normalize($validated['timezone'] ?? null, $coach->timezone ?: 'UTC');
 
         if ($validated['end_time'] <= $validated['start_time']) {
             return $this->error('End time must be after start time.', 422);
@@ -122,7 +127,7 @@ class AvailabilityController extends BaseController
             'day_of_week' => (int) $validated['day_of_week'],
             'start_time' => $validated['start_time'],
             'end_time' => $validated['end_time'],
-            'timezone' => $validated['timezone'] ?? ($coach->timezone ?: 'UTC'),
+            'timezone' => $normalizedTimezone,
             'is_active' => $validated['is_active'] ?? true,
         ]);
 
