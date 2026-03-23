@@ -30,6 +30,11 @@ class Coach extends Model
         return $this->hasMany(\App\Models\Session\CoachingSession::class);
     }
 
+    public function user()
+    {
+        return $this->belongsTo(\App\Models\User::class, 'user_id');
+    }
+
     public function packages()
     {
         return $this->hasMany(CoachingPackage::class);

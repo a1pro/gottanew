@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\Coach;
 
 use App\Http\Controllers\Api\BaseController;
 use App\Models\Coach\Coach;
+use App\Models\Core\Profile;
 use App\Models\Core\UserRole;
 use App\Models\User;
 use Illuminate\Http\Request;
@@ -20,17 +21,85 @@ class CoachController extends BaseController
 
     public function profile(Request $request)
     {
-        return $this->success(
-            $request->user()->coachProfile
+        $user = $request->user();
+        $coach = $user->coachProfile;
+        $profile = Profile::firstOrCreate(
+            ['user_id' => $user->id],
+            [
+                'full_name' => $user->name,
+                'notification_method' => 'email',
+                'email_verified' => !empty($user->email_verified_at),
+            ]
         );
+
+        return $this->success([
+            'id' => $coach?->id,
+            'user_id' => $user->id,
+            'email' => $user->email,
+            'full_name' => $profile->full_name ?: $user->name,
+            'name' => $coach?->name ?: $user->name,
+            'title' => $coach?->title,
+            'bio' => $profile->bio ?: $coach?->bio,
+            'phone' => $profile->phone ?: $coach?->notification_phone ?: $user->phone,
+            'notification_method' => $profile->notification_method,
+            'notification_email' => $coach?->notification_email ?: $user->email,
+            'specialties' => $coach?->specialties ?? [],
+            'timezone' => $coach?->timezone,
+            'email_verified' => (bool) ($profile->email_verified || !empty($user->email_verified_at)),
+            'created_at' => optional($user->created_at)?->toISOString(),
+            'last_login_at' => optional($user->last_login_at)?->toISOString(),
+        ]);
     }
 
     public function update(Request $request)
     {
-        $coach = $request->user()->coachProfile;
-        $coach->update($request->all());
+        $user = $request->user();
+        $coach = $user->coachProfile;
+        $profile = Profile::firstOrCreate(
+            ['user_id' => $user->id],
+            [
+                'full_name' => $user->name,
+                'notification_method' => 'email',
+                'email_verified' => !empty($user->email_verified_at),
+            ]
+        );
 
-        return $this->success($coach, 'Profile updated');
+        $validated = $request->validate([
+            'full_name' => ['nullable', 'string', 'max:255'],
+            'bio' => ['nullable', 'string', 'max:5000'],
+            'phone' => ['nullable', 'string', 'max:50'],
+            'notification_method' => ['nullable', 'in:email,whatsapp,both'],
+            'title' => ['nullable', 'string', 'max:255'],
+            'specialties' => ['nullable', 'array'],
+            'timezone' => ['nullable', 'string', 'max:100'],
+        ]);
+
+        $profile->update([
+            'full_name' => $validated['full_name'] ?? $profile->full_name,
+            'bio' => $validated['bio'] ?? $profile->bio,
+            'phone' => $validated['phone'] ?? $profile->phone,
+            'notification_method' => $validated['notification_method'] ?? $profile->notification_method,
+            'email_verified' => !empty($user->email_verified_at),
+        ]);
+
+        $user->update([
+            'name' => $validated['full_name'] ?? $user->name,
+            'phone' => $validated['phone'] ?? $user->phone,
+        ]);
+
+        if ($coach) {
+            $coach->update(array_filter([
+                'name' => $validated['full_name'] ?? $coach->name,
+                'title' => $validated['title'] ?? $coach->title,
+                'bio' => $validated['bio'] ?? $coach->bio,
+                'notification_phone' => $validated['phone'] ?? $coach->notification_phone,
+                'notification_email' => $user->email,
+                'specialties' => $validated['specialties'] ?? $coach->specialties,
+                'timezone' => $validated['timezone'] ?? $coach->timezone,
+            ], fn ($value) => $value !== null));
+        }
+
+        return $this->profile($request);
     }
 
     public function show($id)
@@ -134,8 +203,17 @@ class CoachController extends BaseController
                 ]
             );
 
-            DB::table('password_reset_tokens')->where('email', $user->email)->delete();
+            Profile::updateOrCreate(
+                ['user_id' => $user->id],
+                [
+                    'full_name' => $validated['name'],
+                    'bio' => $validated['bio'],
+                    'notification_method' => 'email',
+                    'email_verified' => !empty($user->email_verified_at),
+                ]
+            );
 
+            DB::table('password_reset_tokens')->where('email', $user->email)->delete();
             $authToken = $user->createToken('auth_token')->plainTextToken;
 
             DB::commit();

@@ -10,6 +10,7 @@ use App\Models\Session\CoachingSession;
 use App\Models\Session\SessionStateLog;
 use App\Models\Session\SessionVideoDetail;
 use App\Services\Coach\CoachAvailabilityService;
+use App\Services\Communication\NotificationService;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -20,8 +21,10 @@ class SessionController extends BaseController
     private const FIXED_DURATION_MINUTES = 15;
     private const TOKEN_COST = 1;
 
-    public function __construct(private CoachAvailabilityService $availabilityService)
-    {
+    public function __construct(
+        private CoachAvailabilityService $availabilityService,
+        private NotificationService $notificationService
+    ) {
     }
 
     public function index(Request $request)
@@ -124,6 +127,8 @@ class SessionController extends BaseController
             return $session->load(['coach', 'videoDetail']);
         });
 
+        $this->notificationService->sessionBooked($session);
+
         return $this->success($session, 'Session booked successfully');
     }
 
@@ -216,6 +221,8 @@ class SessionController extends BaseController
 
                 return $session->load(['coach', 'videoDetail']);
             });
+
+            $this->notificationService->sessionBooked($session);
 
             return $this->success($session, 'Instant session created');
         } catch (\Throwable $e) {

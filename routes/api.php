@@ -20,5 +20,6 @@ Route::prefix('v1')
     require __DIR__. '/api/personality.php';
     require __DIR__. '/api/ai.php';  
    require __DIR__ . '/api/session.php';
+   require __DIR__ . '/api/notification.php';
     
 });

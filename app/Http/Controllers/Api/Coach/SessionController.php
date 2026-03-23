@@ -78,13 +78,13 @@ class SessionController extends BaseController
         $session = $this->getAuthorizedSession($request, $id);
         $fromState = $session->status;
 
-        if ($fromState !== 'in_progress') {
-            $session->update(['status' => 'in_progress']);
+        if ($fromState !== 'live') {
+            $session->update(['status' => 'live']);
 
             SessionStateLog::create([
                 'session_id' => $session->id,
                 'from_state' => $fromState,
-                'to_state' => 'in_progress',
+                'to_state' => 'live',
                 'changed_by' => optional($request->user())->id,
                 'change_reason' => 'Session started by coach',
                 'metadata' => [

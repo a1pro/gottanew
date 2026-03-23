@@ -26,6 +26,9 @@ class SessionRecording extends Model
         'transcription_status',
         'transcription_paused_segments',
         'privacy_settings',
+        'feedback_rating',
+        'feedback_notes',
+        'feedback_submitted_by_user_id',
     ];
 
     protected $casts = [
