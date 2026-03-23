@@ -17,6 +17,8 @@ use Illuminate\Support\Str;
 
 class AuthController extends BaseController
 {
+    private const LEGAL_VERSION = '2026-03';
+
     public function register(Request $request)
     {
         $request->validate([
@@ -24,6 +26,9 @@ class AuthController extends BaseController
             'email' => 'required|email|unique:users',
             'password' => 'required|min:6|confirmed',
             'role' => 'required|in:client',
+            'accept_terms' => 'required|accepted',
+            'accept_privacy_policy' => 'required|accepted',
+            'accept_coaching_disclaimer' => 'required|accepted',
         ]);
 
         $user = User::create([
@@ -47,6 +52,7 @@ class AuthController extends BaseController
                 'full_name' => $user->name,
                 'notification_method' => 'email',
                 'email_verified' => !empty($user->email_verified_at),
+                ...$this->legalAcceptanceAttributes(),
             ]
         );
 
@@ -111,6 +117,7 @@ class AuthController extends BaseController
             'email_verified' => (bool) ($profile->email_verified || !empty($user->email_verified_at)),
             'created_at' => optional($user->created_at)?->toISOString(),
             'last_login_at' => optional($user->last_login_at)?->toISOString(),
+            'legal' => $this->formatLegalPayload($profile),
         ]);
     }
 
@@ -123,6 +130,9 @@ class AuthController extends BaseController
             'bio' => ['nullable', 'string', 'max:5000'],
             'phone' => ['nullable', 'string', 'max:50'],
             'notification_method' => ['nullable', 'in:email,whatsapp,both'],
+            'accept_terms' => ['nullable', 'boolean'],
+            'accept_privacy_policy' => ['nullable', 'boolean'],
+            'accept_coaching_disclaimer' => ['nullable', 'boolean'],
         ]);
 
         $profile = Profile::firstOrCreate(
@@ -140,6 +150,7 @@ class AuthController extends BaseController
             'phone' => $validated['phone'] ?? $profile->phone,
             'notification_method' => $validated['notification_method'] ?? $profile->notification_method,
             'email_verified' => !empty($user->email_verified_at),
+            ...$this->resolveLegalUpdates($profile, $validated),
         ]);
 
         if (!empty($validated['full_name'])) {
@@ -193,6 +204,10 @@ class AuthController extends BaseController
             'experience' => 'required',
             'specialties' => 'required|array',
             'message' => 'required',
+            'accept_terms' => 'required|accepted',
+            'accept_privacy_policy' => 'required|accepted',
+            'accept_coaching_disclaimer' => 'required|accepted',
+            'acknowledge_coach_independence' => 'required|accepted',
         ]);
 
         PendingCoachApplication::create([
@@ -262,5 +277,49 @@ class AuthController extends BaseController
         return response()->json([
             'message' => 'Password set successfully',
         ]);
+    }
+
+    private function legalAcceptanceAttributes(): array
+    {
+        $now = now();
+
+        return [
+            'legal_version' => self::LEGAL_VERSION,
+            'terms_accepted_at' => $now,
+            'privacy_policy_accepted_at' => $now,
+            'coaching_disclaimer_accepted_at' => $now,
+        ];
+    }
+
+    private function resolveLegalUpdates(Profile $profile, array $validated): array
+    {
+        $updates = [
+            'legal_version' => self::LEGAL_VERSION,
+        ];
+
+        if (($validated['accept_terms'] ?? false) && !$profile->terms_accepted_at) {
+            $updates['terms_accepted_at'] = now();
+        }
+
+        if (($validated['accept_privacy_policy'] ?? false) && !$profile->privacy_policy_accepted_at) {
+            $updates['privacy_policy_accepted_at'] = now();
+        }
+
+        if (($validated['accept_coaching_disclaimer'] ?? false) && !$profile->coaching_disclaimer_accepted_at) {
+            $updates['coaching_disclaimer_accepted_at'] = now();
+        }
+
+        return $updates;
+    }
+
+    private function formatLegalPayload(Profile $profile): array
+    {
+        return [
+            'version' => $profile->legal_version ?: self::LEGAL_VERSION,
+            'terms_accepted_at' => optional($profile->terms_accepted_at)?->toISOString(),
+            'privacy_policy_accepted_at' => optional($profile->privacy_policy_accepted_at)?->toISOString(),
+            'coaching_disclaimer_accepted_at' => optional($profile->coaching_disclaimer_accepted_at)?->toISOString(),
+            'coach_independence_acknowledged_at' => optional($profile->coach_independence_acknowledged_at)?->toISOString(),
+        ];
     }
 }

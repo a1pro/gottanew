@@ -14,6 +14,8 @@ use Illuminate\Support\Facades\Hash;
 
 class CoachController extends BaseController
 {
+    private const LEGAL_VERSION = '2026-03';
+
     public function index()
     {
         return Coach::where('is_active', true)->get();
@@ -48,6 +50,7 @@ class CoachController extends BaseController
             'email_verified' => (bool) ($profile->email_verified || !empty($user->email_verified_at)),
             'created_at' => optional($user->created_at)?->toISOString(),
             'last_login_at' => optional($user->last_login_at)?->toISOString(),
+            'legal' => $this->formatLegalPayload($profile),
         ]);
     }
 
@@ -72,6 +75,10 @@ class CoachController extends BaseController
             'title' => ['nullable', 'string', 'max:255'],
             'specialties' => ['nullable', 'array'],
             'timezone' => ['nullable', 'string', 'max:100'],
+            'accept_terms' => ['nullable', 'boolean'],
+            'accept_privacy_policy' => ['nullable', 'boolean'],
+            'accept_coaching_disclaimer' => ['nullable', 'boolean'],
+            'acknowledge_coach_independence' => ['nullable', 'boolean'],
         ]);
 
         $profile->update([
@@ -80,6 +87,7 @@ class CoachController extends BaseController
             'phone' => $validated['phone'] ?? $profile->phone,
             'notification_method' => $validated['notification_method'] ?? $profile->notification_method,
             'email_verified' => !empty($user->email_verified_at),
+            ...$this->resolveLegalUpdates($profile, $validated),
         ]);
 
         $user->update([
@@ -148,6 +156,10 @@ class CoachController extends BaseController
             'specialties' => ['nullable', 'array'],
             'hourly_rate_amount' => ['required', 'numeric', 'min:0'],
             'timezone' => ['required', 'string', 'max:100'],
+            'accept_terms' => ['required', 'accepted'],
+            'accept_privacy_policy' => ['required', 'accepted'],
+            'accept_coaching_disclaimer' => ['required', 'accepted'],
+            'acknowledge_coach_independence' => ['required', 'accepted'],
         ]);
 
         $resetRows = DB::table('password_reset_tokens')->get();
@@ -210,6 +222,11 @@ class CoachController extends BaseController
                     'bio' => $validated['bio'],
                     'notification_method' => 'email',
                     'email_verified' => !empty($user->email_verified_at),
+                    'legal_version' => self::LEGAL_VERSION,
+                    'terms_accepted_at' => now(),
+                    'privacy_policy_accepted_at' => now(),
+                    'coaching_disclaimer_accepted_at' => now(),
+                    'coach_independence_acknowledged_at' => now(),
                 ]
             );
 
@@ -237,5 +254,41 @@ class CoachController extends BaseController
                 'error' => $e->getMessage(),
             ], 500);
         }
+    }
+
+    private function resolveLegalUpdates(Profile $profile, array $validated): array
+    {
+        $updates = [
+            'legal_version' => self::LEGAL_VERSION,
+        ];
+
+        if (($validated['accept_terms'] ?? false) && !$profile->terms_accepted_at) {
+            $updates['terms_accepted_at'] = now();
+        }
+
+        if (($validated['accept_privacy_policy'] ?? false) && !$profile->privacy_policy_accepted_at) {
+            $updates['privacy_policy_accepted_at'] = now();
+        }
+
+        if (($validated['accept_coaching_disclaimer'] ?? false) && !$profile->coaching_disclaimer_accepted_at) {
+            $updates['coaching_disclaimer_accepted_at'] = now();
+        }
+
+        if (($validated['acknowledge_coach_independence'] ?? false) && !$profile->coach_independence_acknowledged_at) {
+            $updates['coach_independence_acknowledged_at'] = now();
+        }
+
+        return $updates;
+    }
+
+    private function formatLegalPayload(Profile $profile): array
+    {
+        return [
+            'version' => $profile->legal_version ?: self::LEGAL_VERSION,
+            'terms_accepted_at' => optional($profile->terms_accepted_at)?->toISOString(),
+            'privacy_policy_accepted_at' => optional($profile->privacy_policy_accepted_at)?->toISOString(),
+            'coaching_disclaimer_accepted_at' => optional($profile->coaching_disclaimer_accepted_at)?->toISOString(),
+            'coach_independence_acknowledged_at' => optional($profile->coach_independence_acknowledged_at)?->toISOString(),
+        ];
     }
 }
