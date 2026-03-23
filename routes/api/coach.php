@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\Coach\AvailabilityController;
 use App\Http\Controllers\Api\Coach\PackageController;
 use App\Http\Controllers\Api\Coach\CoachMatchController;
 use App\Http\Controllers\Api\Coach\SessionController;
+use App\Http\Controllers\Api\Coach\EarningsController;
 
 Route::prefix('coach')->group(function () {
     Route::get('/coaches', [CoachController::class, 'index']);

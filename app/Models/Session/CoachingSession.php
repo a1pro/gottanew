@@ -18,10 +18,24 @@ class CoachingSession extends Model
         'price_currency',
         'client_notes',
         'coach_notes',
+        'actual_started_at',
+        'actual_ended_at',
+        'last_activity_at',
+        'last_interrupted_at',
+        'recovery_deadline_at',
+        'recovery_attempts',
+        'failure_reason',
+        'recovery_context',
     ];
 
     protected $casts = [
         'scheduled_time' => 'datetime',
+        'actual_started_at' => 'datetime',
+        'actual_ended_at' => 'datetime',
+        'last_activity_at' => 'datetime',
+        'last_interrupted_at' => 'datetime',
+        'recovery_deadline_at' => 'datetime',
+        'recovery_context' => 'array',
     ];
 
     public function coach()
@@ -52,5 +66,20 @@ class CoachingSession extends Model
     public function recording()
     {
         return $this->hasOne(SessionRecording::class, 'session_id');
+    }
+
+    public function messages()
+    {
+        return $this->hasMany(SessionMessage::class, 'session_id');
+    }
+
+    public function resources()
+    {
+        return $this->hasMany(SessionResource::class, 'session_id');
+    }
+
+    public function participants()
+    {
+        return $this->hasMany(SessionParticipant::class, 'session_id');
     }
 }

@@ -34,8 +34,18 @@ return [
             'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),
         ],
     ],
-   'daily' => [
+    'daily' => [
         'api_key' => env('DAILY_API_KEY'),
+    ],
+
+    'stripe' => [
+        'secret' => env('STRIPE_SECRET'),
+        'publishable_key' => env('STRIPE_PUBLISHABLE_KEY'),
+        'webhook_secret' => env('STRIPE_WEBHOOK_SECRET'),
+    ],
+
+    'frontend' => [
+        'url' => env('FRONTEND_URL', env('APP_URL', 'http://localhost:8080')),
     ],
 
 ];

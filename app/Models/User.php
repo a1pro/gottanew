@@ -121,6 +121,11 @@ class User extends Authenticatable
         );
     }
 
+    public function notifications()
+    {
+        return $this->hasMany(\App\Models\Communication\UserNotification::class, 'user_id');
+    }
+
     /*
     |--------------------------------------------------------------------------
     | ROLE HELPERS

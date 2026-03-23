@@ -1,17 +1,46 @@
 <?php
 
-namespace Database\Seeders;
+namespace App\Http\Controllers\Api\Finance;
 
+use App\Http\Controllers\Api\BaseController;
 use App\Models\Finance\CoinPackage;
-use Illuminate\Database\Seeder;
+use Illuminate\Http\JsonResponse;
 
-class CoinPackageSeeder extends Seeder
+class CoinPackageController extends BaseController
 {
-    /**
-     * Run the database seeds.
-     */
-    public function run(): void
+    public function index(): JsonResponse
     {
+        $this->ensureDefaultPackages();
+
+        $packages = CoinPackage::query()
+            ->where('is_active', true)
+            ->orderByDesc('is_popular')
+            ->orderBy('price_amount')
+            ->get()
+            ->map(function (CoinPackage $package) {
+                return [
+                    'id' => (string) $package->id,
+                    'name' => $package->name,
+                    'coin_amount' => (int) $package->coin_amount,
+                    'price_amount' => (float) $package->price_amount,
+                    'price_currency' => $package->price_currency,
+                    'bonus_coins' => (int) $package->bonus_coins,
+                    'is_popular' => (bool) $package->is_popular,
+                    'is_active' => (bool) $package->is_active,
+                    'total_coins' => $package->total_coins,
+                ];
+            })
+            ->values();
+
+        return $this->success($packages);
+    }
+
+    private function ensureDefaultPackages(): void
+    {
+        if (CoinPackage::query()->where('is_active', true)->exists()) {
+            return;
+        }
+
         $packages = [
             [
                 'name' => 'Starter Pack',
@@ -52,7 +81,7 @@ class CoinPackageSeeder extends Seeder
         ];
 
         foreach ($packages as $package) {
-            CoinPackage::updateOrCreate(
+            CoinPackage::query()->updateOrCreate(
                 ['name' => $package['name']],
                 $package
             );

@@ -65,10 +65,12 @@ class AdminController extends BaseController
         $sessions = CoachingSession::query()
             ->with([
                 'client:id,name,email',
-                'coach:id,name',
+                'coach:id,name,user_id',
+                'videoDetail:id,session_id,video_join_url,daily_room_name,room_created_at',
                 'recording:id,session_id,transcription_status,transcript,ai_summary,pre_session_summary,post_session_summary,next_actions,key_topics,privacy_settings',
+                'stateLogs' => fn ($query) => $query->latest('created_at')->limit(5),
             ])
-            ->whereIn('status', ['failed', 'cancelled', 'no_show'])
+            ->whereIn('status', ['interrupted', 'failed', 'cancelled', 'no_show'])
             ->latest('scheduled_time')
             ->paginate((int) $request->get('per_page', 10));
 
