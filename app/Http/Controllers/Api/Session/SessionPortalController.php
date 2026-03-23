@@ -19,6 +19,7 @@ class SessionPortalController extends BaseController
 {
     private const PRE_JOIN_MINUTES = 5;
     private const RECOVERY_BUFFER_MINUTES = 20;
+    private const SESSION_CONSENT_VERSION = '2026-03';
 
     public function __construct(private NotificationService $notificationService)
     {
@@ -383,6 +384,8 @@ class SessionPortalController extends BaseController
         $validated = $request->validate([
             'recording_enabled' => ['nullable', 'boolean'],
             'transcription_consent' => ['required', 'in:full,basic,none'],
+            'acknowledge_coaching_disclaimer' => ['required', 'accepted'],
+            'confirm_informed_consent' => ['required', 'accepted'],
         ]);
 
         $recordingEnabled = array_key_exists('recording_enabled', $validated)
@@ -401,6 +404,9 @@ class SessionPortalController extends BaseController
             'consented_by_user_id' => $user->id,
             'consented_at' => now()->toISOString(),
             'consent_source' => 'session_lobby',
+            'coaching_disclaimer_acknowledged' => true,
+            'informed_recording_consent_confirmed' => true,
+            'consent_version' => self::SESSION_CONSENT_VERSION,
         ]);
 
         $recording->update([

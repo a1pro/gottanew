@@ -12,6 +12,11 @@ class Profile extends Model
         'phone',
         'notification_method',
         'email_verified',
+        'legal_version',
+        'terms_accepted_at',
+        'privacy_policy_accepted_at',
+        'coaching_disclaimer_accepted_at',
+        'coach_independence_acknowledged_at',
         'personality_traits',
         'communication_style',
         'engagement_patterns',
@@ -34,6 +39,10 @@ class Profile extends Model
         'success_patterns' => 'array',
         'preferred_session_times' => 'array',
         'email_verified' => 'boolean',
+        'terms_accepted_at' => 'datetime',
+        'privacy_policy_accepted_at' => 'datetime',
+        'coaching_disclaimer_accepted_at' => 'datetime',
+        'coach_independence_acknowledged_at' => 'datetime',
         'last_session_at' => 'datetime'
     ];
 
