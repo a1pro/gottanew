@@ -20,6 +20,9 @@ Route::prefix('admin')
         Route::get('/transcripts/{id}', [AdminController::class, 'transcript']);
 
         Route::get('/finance/overview', [PayoutController::class, 'overview']);
+        Route::get('/client-wallets', [PayoutController::class, 'clientWallets']);
+        Route::get('/token-grants', [PayoutController::class, 'tokenGrants']);
+        Route::post('/token-grants', [PayoutController::class, 'grantTokens']);
         Route::get('/payout-cycles', [PayoutController::class, 'cycles']);
         Route::post('/payout-cycles/generate', [PayoutController::class, 'generate']);
         Route::post('/payout-cycles/{id}/approve', [PayoutController::class, 'approve']);
