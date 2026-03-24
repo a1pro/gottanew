@@ -82,7 +82,7 @@ class AdminController extends BaseController
                 'coach.user:id,email',
                 'videoDetail:id,session_id,video_join_url,daily_room_name,room_created_at',
                 'recording:id,session_id,transcription_status,transcript,ai_summary,pre_session_summary,post_session_summary,next_actions,key_topics,privacy_settings,recording_url,feedback_rating',
-                'transactions:id,session_id,status,type,coin_amount,amount,currency,created_at',
+                'transactions:id,session_id,status,transaction_type,coin_amount,amount_fiat,amount_currency,created_at',
             ])
             ->when($status !== '', function ($query) use ($status) {
                 $query->where('status', $status);
@@ -392,10 +392,10 @@ class AdminController extends BaseController
             'transactions' => $session->transactions->map(fn ($transaction) => [
                 'id' => (int) $transaction->id,
                 'status' => $transaction->status,
-                'type' => $transaction->type,
+                'type' => $transaction->transaction_type,
                 'coin_amount' => (int) ($transaction->coin_amount ?? 0),
-                'amount' => $transaction->amount,
-                'currency' => $transaction->currency,
+                'amount' => $transaction->amount_fiat,
+                'currency' => $transaction->amount_currency,
                 'created_at' => optional($transaction->created_at)?->toISOString(),
             ])->values()->all(),
         ];
