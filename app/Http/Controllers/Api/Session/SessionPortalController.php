@@ -52,13 +52,16 @@ class SessionPortalController extends BaseController
     public function show(Request $request, $id)
     {
         $session = $this->getAuthorizedSession($request, $id);
+        $this->expireInterruptedSessionIfNeeded($session, optional($request->user())->id, 'show');
 
-        return $this->success($this->presentSession($session, $request->user()));
+        return $this->success($this->presentSession($session->fresh(['coach', 'client', 'videoDetail', 'recording', 'participants', 'stateLogs']), $request->user()));
     }
 
     public function join(Request $request, $id)
     {
         $session = $this->getAuthorizedSession($request, $id);
+        $this->expireInterruptedSessionIfNeeded($session, optional($request->user())->id, 'join');
+        $session = $session->fresh(['coach', 'client', 'videoDetail', 'recording', 'participants', 'stateLogs']);
         $validation = $this->buildValidationSnapshot($session, $request->user());
 
         if (!$validation['can_join']) {
@@ -93,6 +96,8 @@ class SessionPortalController extends BaseController
     {
         $session = $this->getAuthorizedSession($request, $id);
         $user = $request->user();
+        $this->expireInterruptedSessionIfNeeded($session, optional($user)->id, 'reconnect');
+        $session = $session->fresh(['coach', 'client', 'videoDetail', 'recording', 'participants', 'stateLogs']);
 
         $validated = $request->validate([
             'force_refresh_room' => ['nullable', 'boolean'],
@@ -648,8 +653,9 @@ class SessionPortalController extends BaseController
     public function validateSession(Request $request, $id)
     {
         $session = $this->getAuthorizedSession($request, $id);
+        $this->expireInterruptedSessionIfNeeded($session, optional($request->user())->id, 'validate');
 
-        return $this->success($this->buildValidationSnapshot($session, $request->user()));
+        return $this->success($this->buildValidationSnapshot($session->fresh(['coach', 'client', 'videoDetail', 'recording', 'participants', 'stateLogs']), $request->user()));
     }
 
     public function saveFeedback(Request $request, $id)
@@ -726,6 +732,71 @@ class SessionPortalController extends BaseController
         }
     }
 
+
+    private function expireInterruptedSessionIfNeeded(CoachingSession $session, ?int $changedBy = null, string $source = 'system'): void
+    {
+        if ($this->normalizeState((string) $session->status) !== 'interrupted') {
+            return;
+        }
+
+        if (!$session->recovery_deadline_at || now()->lessThanOrEqualTo($session->recovery_deadline_at)) {
+            return;
+        }
+
+        DB::transaction(function () use ($session, $changedBy, $source) {
+            $fresh = CoachingSession::query()->lockForUpdate()->find($session->id);
+
+            if (!$fresh || $this->normalizeState((string) $fresh->status) !== 'interrupted') {
+                return;
+            }
+
+            if (!$fresh->recovery_deadline_at || now()->lessThanOrEqualTo($fresh->recovery_deadline_at)) {
+                return;
+            }
+
+            $fromState = $fresh->status;
+
+            $this->refundReservedTokenIfNeeded($fresh);
+
+            $fresh->update([
+                'status' => 'failed',
+                'actual_ended_at' => $fresh->actual_ended_at ?: now(),
+                'last_activity_at' => now(),
+                'recovery_deadline_at' => null,
+                'failure_reason' => $fresh->failure_reason ?: 'Recovery window expired after interruption.',
+                'recovery_context' => $this->mergeRecoveryContext(
+                    $fresh->recovery_context,
+                    [
+                        'expired_to_failed_at' => now()->toISOString(),
+                        'expired_to_failed_source' => $source,
+                    ]
+                ),
+            ]);
+
+            $this->logStateTransition(
+                $fresh,
+                $fromState,
+                'failed',
+                $changedBy,
+                'Recovery window expired after interruption.',
+                ['source' => $source]
+            );
+        });
+
+        $refreshed = $session->fresh(['coach', 'client', 'videoDetail', 'recording', 'participants', 'stateLogs']);
+        if ($refreshed) {
+            $this->notificationService->sessionStateChanged($refreshed, 'interrupted', 'failed', $changedBy);
+            $session->fill($refreshed->getAttributes());
+            $session->setRelations($refreshed->getRelations());
+        }
+    }
+
+    private function shouldSkipTokenLifecycle(): bool
+    {
+        return app()->environment('local')
+            && !filter_var((string) env('ENABLE_LOCAL_SESSION_BILLING', false), FILTER_VALIDATE_BOOLEAN);
+    }
+
     private function presentSession(CoachingSession $session, $user): array
     {
         $fresh = $session->fresh([
@@ -744,6 +815,11 @@ class SessionPortalController extends BaseController
             'last_interrupted_at' => optional($fresh->last_interrupted_at)?->toISOString(),
             'recovery_deadline_at' => optional($fresh->recovery_deadline_at)?->toISOString(),
             'failure_reason' => $fresh->failure_reason,
+        ];
+        $payload['billing'] = [
+            'token_cost' => $this->tokenCostForSession($fresh),
+            'is_intro_session' => (bool) ($fresh->is_intro_session ?? false),
+            'display_price' => $this->tokenCostForSession($fresh) === 0 ? 'Free' : $this->tokenCostForSession($fresh) . ' token',
         ];
 
         return $payload;
@@ -766,6 +842,11 @@ class SessionPortalController extends BaseController
             'expires_at' => optional($session->recovery_deadline_at)->toISOString(),
             'participant' => $participant?->fresh(),
             'validation' => $this->buildValidationSnapshot($session, $user),
+            'billing' => [
+                'token_cost' => $this->tokenCostForSession($session),
+                'is_intro_session' => (bool) ($session->is_intro_session ?? false),
+                'display_price' => $this->tokenCostForSession($session) === 0 ? 'Free' : $this->tokenCostForSession($session) . ' token',
+            ],
         ];
     }
 
@@ -1004,7 +1085,7 @@ class SessionPortalController extends BaseController
 
     private function reserveTokenIfNeeded(CoachingSession $session): ?string
     {
-        if (app()->environment('local')) {
+        if ($this->shouldSkipTokenLifecycle()) {
             return null;
         }
 
@@ -1014,7 +1095,11 @@ class SessionPortalController extends BaseController
             return null;
         }
 
-        $tokenCost = max(1, (int) round((float) ($session->price_amount ?? 1)));
+        $tokenCost = $this->tokenCostForSession($session);
+
+        if ($tokenCost <= 0) {
+            return null;
+        }
 
         $wallet = UserWallet::firstOrCreate(
             ['user_id' => $session->client_id],
@@ -1047,7 +1132,11 @@ class SessionPortalController extends BaseController
 
     private function completeReservedTokenIfNeeded(CoachingSession $session): void
     {
-        if (app()->environment('local')) {
+        if ($this->shouldSkipTokenLifecycle()) {
+            return;
+        }
+
+        if ($this->tokenCostForSession($session) <= 0) {
             return;
         }
 
@@ -1075,7 +1164,11 @@ class SessionPortalController extends BaseController
 
     private function refundReservedTokenIfNeeded(CoachingSession $session): void
     {
-        if (app()->environment('local')) {
+        if ($this->shouldSkipTokenLifecycle()) {
+            return;
+        }
+
+        if ($this->tokenCostForSession($session) <= 0) {
             return;
         }
 
@@ -1110,5 +1203,10 @@ class SessionPortalController extends BaseController
             'amount_fiat' => null,
             'status' => 'completed',
         ]);
+    }
+
+    private function tokenCostForSession(CoachingSession $session): int
+    {
+        return max(0, (int) round((float) ($session->price_amount ?? 1)));
     }
 }

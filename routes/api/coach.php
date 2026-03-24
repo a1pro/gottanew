@@ -6,7 +6,6 @@ use App\Http\Controllers\Api\Coach\AvailabilityController;
 use App\Http\Controllers\Api\Coach\PackageController;
 use App\Http\Controllers\Api\Coach\CoachMatchController;
 use App\Http\Controllers\Api\Coach\SessionController;
-use App\Http\Controllers\Api\Coach\EarningsController;
 
 Route::prefix('coach')->group(function () {
     Route::get('/coaches', [CoachController::class, 'index']);
@@ -23,6 +22,8 @@ Route::prefix('coach')->group(function () {
 Route::prefix('coach')->middleware('auth:sanctum')->group(function () {
     Route::get('/profile', [CoachController::class, 'profile']);
     Route::put('/profile', [CoachController::class, 'update']);
+
+    Route::get('/coaches/{id}/session-pricing', [AvailabilityController::class, 'pricing']);
 
     Route::get('/availability', [AvailabilityController::class, 'index']);
     Route::post('/availability', [AvailabilityController::class, 'store']);

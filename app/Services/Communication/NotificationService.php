@@ -65,7 +65,7 @@ class NotificationService
                     (int) ($session->duration_minutes ?? 15),
                     optional($session->scheduled_time)->format('M d, Y h:i A') ?? 'the scheduled time'
                 ),
-                'action_url' => "/coach-session/{$session->id}",
+                'action_url' => $this->coachSessionActionUrl($session),
                 'metadata' => [
                     'session_status' => $session->status,
                     'actor' => 'client',
@@ -119,7 +119,7 @@ class NotificationService
             }
 
             $isCoach = $session->coach && (int) $session->coach->user_id === (int) $user->id;
-            $actionUrl = $isCoach ? "/coach-session/{$session->id}" : "/session/{$session->id}";
+            $actionUrl = $isCoach ? $this->coachSessionActionUrl($session) : $this->clientSessionActionUrl($session);
 
             $this->createForUser($user, [
                 'session_id' => $session->id,
@@ -165,7 +165,7 @@ class NotificationService
             'priority' => 'normal',
             'title' => 'New session message',
             'body' => sprintf('%s sent you a new message in session #%d.', $message->sender?->name ?? 'Someone', $session->id),
-            'action_url' => $isCoach ? "/coach-session/{$session->id}" : "/session/{$session->id}",
+            'action_url' => $isCoach ? $this->coachSessionActionUrl($session) : $this->clientSessionActionUrl($session),
             'metadata' => [
                 'preview' => Str::limit($message->message, 120),
             ],
@@ -197,7 +197,7 @@ class NotificationService
                 'priority' => 'normal',
                 'title' => 'New session resource shared',
                 'body' => sprintf('%s shared "%s" in session #%d.', $resource->creator?->name ?? 'Someone', $resource->title, $session->id),
-                'action_url' => $isCoach ? "/coach-session/{$session->id}" : "/session/{$session->id}",
+                'action_url' => $isCoach ? $this->coachSessionActionUrl($session) : $this->clientSessionActionUrl($session),
                 'metadata' => [
                     'resource_type' => $resource->resource_type,
                     'resource_title' => $resource->title,
@@ -236,6 +236,16 @@ class NotificationService
                 'payout_amount' => (float) $payout->payout_amount,
             ],
         ]);
+    }
+
+    private function coachSessionActionUrl(CoachingSession $session): string
+    {
+        return "/session/{$session->id}/coach-join";
+    }
+
+    private function clientSessionActionUrl(CoachingSession $session): string
+    {
+        return "/session/{$session->id}";
     }
 
     private function queueEmail(User $user, UserNotification $notification, array $payload): void
