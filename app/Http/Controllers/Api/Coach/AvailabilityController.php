@@ -6,13 +6,15 @@ use App\Http\Controllers\Api\BaseController;
 use App\Models\Coach\Coach;
 use App\Models\Coach\CoachAvailability;
 use App\Services\Coach\CoachAvailabilityService;
-use App\Support\Timezone;
+use App\Services\Session\SessionPricingService;
 use Illuminate\Http\Request;
 
 class AvailabilityController extends BaseController
 {
-    public function __construct(private CoachAvailabilityService $availabilityService)
-    {
+    public function __construct(
+        private CoachAvailabilityService $availabilityService,
+        private SessionPricingService $sessionPricingService
+    ) {
     }
 
     public function publicIndex($coachId)
@@ -28,11 +30,11 @@ class AvailabilityController extends BaseController
     {
         $validated = $request->validate([
             'date' => ['required', 'date_format:Y-m-d'],
-            'viewer_timezone' => ['nullable', 'string', 'max:100'],
+            'viewer_timezone' => ['nullable', 'timezone'],
         ]);
 
         $coach = Coach::findOrFail($coachId);
-        $viewerTimezone = Timezone::normalize($validated['viewer_timezone'] ?? null);
+        $viewerTimezone = $validated['viewer_timezone'] ?? 'UTC';
 
         return $this->success([
             'date' => $validated['date'],
@@ -44,6 +46,18 @@ class AvailabilityController extends BaseController
                 $viewerTimezone
             ),
         ]);
+    }
+
+    public function pricing(Request $request, $coachId)
+    {
+        $user = $request->user();
+        abort_unless($user, 401, 'Unauthenticated');
+
+        $coach = Coach::findOrFail($coachId);
+
+        return $this->success(
+            $this->sessionPricingService->preview((int) $user->id, (int) $coach->id)
+        );
     }
 
     public function index(Request $request)
@@ -63,11 +77,9 @@ class AvailabilityController extends BaseController
             'day_of_week' => ['required', 'integer', 'min:0', 'max:6'],
             'start_time' => ['required', 'date_format:H:i'],
             'end_time' => ['required', 'date_format:H:i'],
-            'timezone' => ['nullable', 'string', 'max:100'],
+            'timezone' => ['nullable', 'timezone'],
             'is_active' => ['nullable', 'boolean'],
         ]);
-
-        $normalizedTimezone = Timezone::normalize($validated['timezone'] ?? null, $coach->timezone ?: 'UTC');
 
         if ($validated['end_time'] <= $validated['start_time']) {
             return $this->error('End time must be after start time.', 422);
@@ -87,7 +99,7 @@ class AvailabilityController extends BaseController
             'day_of_week' => (int) $validated['day_of_week'],
             'start_time' => $validated['start_time'],
             'end_time' => $validated['end_time'],
-            'timezone' => $normalizedTimezone,
+            'timezone' => $validated['timezone'] ?? ($coach->timezone ?: 'UTC'),
             'is_active' => $validated['is_active'] ?? true,
         ]);
 
@@ -103,11 +115,9 @@ class AvailabilityController extends BaseController
             'day_of_week' => ['required', 'integer', 'min:0', 'max:6'],
             'start_time' => ['required', 'date_format:H:i'],
             'end_time' => ['required', 'date_format:H:i'],
-            'timezone' => ['nullable', 'string', 'max:100'],
+            'timezone' => ['nullable', 'timezone'],
             'is_active' => ['nullable', 'boolean'],
         ]);
-
-        $normalizedTimezone = Timezone::normalize($validated['timezone'] ?? null, $coach->timezone ?: 'UTC');
 
         if ($validated['end_time'] <= $validated['start_time']) {
             return $this->error('End time must be after start time.', 422);
@@ -127,7 +137,7 @@ class AvailabilityController extends BaseController
             'day_of_week' => (int) $validated['day_of_week'],
             'start_time' => $validated['start_time'],
             'end_time' => $validated['end_time'],
-            'timezone' => $normalizedTimezone,
+            'timezone' => $validated['timezone'] ?? ($coach->timezone ?: 'UTC'),
             'is_active' => $validated['is_active'] ?? true,
         ]);
 

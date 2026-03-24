@@ -16,6 +16,7 @@ class CoachingSession extends Model
         'duration_minutes',
         'price_amount',
         'price_currency',
+        'is_intro_session',
         'client_notes',
         'coach_notes',
         'actual_started_at',
@@ -36,6 +37,7 @@ class CoachingSession extends Model
         'last_interrupted_at' => 'datetime',
         'recovery_deadline_at' => 'datetime',
         'recovery_context' => 'array',
+        'is_intro_session' => 'boolean',
     ];
 
     public function coach()
