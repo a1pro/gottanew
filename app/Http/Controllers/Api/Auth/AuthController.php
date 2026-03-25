@@ -129,7 +129,7 @@ class AuthController extends BaseController
             'full_name' => ['nullable', 'string', 'max:255'],
             'bio' => ['nullable', 'string', 'max:5000'],
             'phone' => ['nullable', 'string', 'max:50'],
-            'notification_method' => ['nullable', 'in:email,whatsapp,both'],
+            'notification_method' => ['nullable', 'in:email'],
             'accept_terms' => ['nullable', 'boolean'],
             'accept_privacy_policy' => ['nullable', 'boolean'],
             'accept_coaching_disclaimer' => ['nullable', 'boolean'],

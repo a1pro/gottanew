@@ -71,7 +71,7 @@ class CoachController extends BaseController
             'full_name' => ['nullable', 'string', 'max:255'],
             'bio' => ['nullable', 'string', 'max:5000'],
             'phone' => ['nullable', 'string', 'max:50'],
-            'notification_method' => ['nullable', 'in:email,whatsapp,both'],
+            'notification_method' => ['nullable', 'in:email'],
             'title' => ['nullable', 'string', 'max:255'],
             'specialties' => ['nullable', 'array'],
             'timezone' => ['nullable', 'string', 'max:100'],

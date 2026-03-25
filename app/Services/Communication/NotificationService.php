@@ -3,7 +3,6 @@
 namespace App\Services\Communication;
 
 use App\Models\Communication\EmailOutbox;
-use App\Models\Communication\MessageOutbox;
 use App\Models\Communication\UserNotification;
 use App\Models\Core\Profile;
 use App\Models\Finance\CoachPayout;
@@ -17,7 +16,6 @@ class NotificationService
 {
     public function __construct(
         private SessionReminderService $sessionReminderService,
-        private TwilioMessagingService $twilioMessagingService,
     ) {
     }
 
@@ -32,6 +30,10 @@ class NotificationService
             ]
         );
 
+        if (($profile->notification_method ?? 'email') !== 'email') {
+            $profile->forceFill(['notification_method' => 'email'])->save();
+        }
+
         $notification = UserNotification::create([
             'user_id' => $user->id,
             'session_id' => $payload['session_id'] ?? null,
@@ -41,27 +43,15 @@ class NotificationService
             'title' => $payload['title'],
             'body' => $payload['body'],
             'action_url' => $payload['action_url'] ?? null,
-            'channel' => $profile->notification_method,
+            'channel' => 'email',
             'delivery_status' => 'stored',
             'metadata' => $payload['metadata'] ?? null,
             'is_read' => false,
             'sent_at' => now(),
         ]);
 
-        $queuedAny = false;
-
-        if (in_array($profile->notification_method, ['email', 'both'], true) && filled($user->email)) {
+        if (filled($user->email)) {
             $this->queueEmail($user, $notification, $payload);
-            $queuedAny = true;
-        }
-
-        foreach ($this->resolveMessageChannels($profile, $payload) as $channel) {
-            if ($this->queueMessage($user, $notification, $payload, $channel)) {
-                $queuedAny = true;
-            }
-        }
-
-        if ($queuedAny) {
             $notification->update(['delivery_status' => 'queued']);
         }
 
@@ -317,121 +307,5 @@ class NotificationService
                 'scheduled_for' => now(),
             ]
         );
-    }
-
-    private function queueMessage(User $user, UserNotification $notification, array $payload, string $channel): bool
-    {
-        $phone = $this->resolveMessagingPhone($user);
-        if (!$phone) {
-            return false;
-        }
-
-        $body = $this->renderMessageBody($payload);
-        $dedupKey = implode(':', [
-            'notification',
-            $notification->user_id,
-            $notification->category,
-            $notification->session_id ?: 'none',
-            $notification->coach_payout_id ?: 'none',
-            $channel,
-            $notification->id,
-        ]);
-
-        MessageOutbox::updateOrCreate(
-            ['dedup_key' => $dedupKey],
-            [
-                'user_id' => $user->id,
-                'user_notification_id' => $notification->id,
-                'session_id' => $notification->session_id,
-                'provider' => 'twilio',
-                'channel' => $channel,
-                'recipient_phone' => $phone,
-                'sender_id' => null,
-                'body' => $body,
-                'payload' => [
-                    'title' => $payload['title'],
-                    'action_url' => $payload['action_url'] ?? null,
-                    'metadata' => $payload['metadata'] ?? null,
-                ],
-                'status' => 'pending',
-                'scheduled_for' => now(),
-            ]
-        );
-
-        return true;
-    }
-
-    private function resolveMessageChannels(Profile $profile, array $payload): array
-    {
-        $preferred = strtolower((string) ($payload['preferred_message_channel'] ?? ''));
-        if (in_array($preferred, ['sms', 'whatsapp'], true) && $this->twilioMessagingService->supportsChannel($preferred)) {
-            return [$preferred];
-        }
-
-        if (!in_array($profile->notification_method, ['whatsapp', 'both'], true)) {
-            return [];
-        }
-
-        if ($this->twilioMessagingService->supportsChannel('whatsapp')) {
-            return ['whatsapp'];
-        }
-
-        $fallback = $this->twilioMessagingService->preferredFallbackChannel();
-        return $fallback ? [$fallback] : [];
-    }
-
-    private function resolveMessagingPhone(User $user): ?string
-    {
-        $user->loadMissing(['profile', 'coachProfile']);
-
-        $candidates = [
-            $user->profile?->phone,
-            $user->coachProfile?->notification_phone,
-            $user->phone,
-        ];
-
-        foreach ($candidates as $phone) {
-            $normalized = $this->normalizePhone((string) $phone);
-            if ($normalized) {
-                return $normalized;
-            }
-        }
-
-        return null;
-    }
-
-    private function renderMessageBody(array $payload): string
-    {
-        $body = trim((string) ($payload['body'] ?? ''));
-        $actionUrl = trim((string) ($payload['action_url'] ?? ''));
-
-        if ($actionUrl === '') {
-            return $body;
-        }
-
-        return trim($body . "\n\nOpen: " . $actionUrl);
-    }
-
-    private function normalizePhone(string $value): ?string
-    {
-        $value = trim($value);
-        if ($value === '') {
-            return null;
-        }
-
-        $value = preg_replace('/[^\d+]/', '', $value) ?: '';
-        if (str_starts_with($value, '00')) {
-            $value = '+' . substr($value, 2);
-        }
-        if (!str_starts_with($value, '+')) {
-            $value = '+' . ltrim($value, '+');
-        }
-
-        $digits = preg_replace('/\D+/', '', $value) ?: '';
-        if (strlen($digits) < 8 || strlen($digits) > 15) {
-            return null;
-        }
-
-        return '+' . $digits;
     }
 }
