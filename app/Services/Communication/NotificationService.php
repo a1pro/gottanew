@@ -14,6 +14,11 @@ use Illuminate\Support\Str;
 
 class NotificationService
 {
+    public function __construct(
+        private SessionReminderService $sessionReminderService,
+    ) {
+    }
+
     public function createForUser(User $user, array $payload): UserNotification
     {
         $profile = Profile::query()->firstOrCreate(
@@ -25,6 +30,10 @@ class NotificationService
             ]
         );
 
+        if (($profile->notification_method ?? 'email') !== 'email') {
+            $profile->forceFill(['notification_method' => 'email'])->save();
+        }
+
         $notification = UserNotification::create([
             'user_id' => $user->id,
             'session_id' => $payload['session_id'] ?? null,
@@ -34,14 +43,14 @@ class NotificationService
             'title' => $payload['title'],
             'body' => $payload['body'],
             'action_url' => $payload['action_url'] ?? null,
-            'channel' => $profile->notification_method,
+            'channel' => 'email',
             'delivery_status' => 'stored',
             'metadata' => $payload['metadata'] ?? null,
             'is_read' => false,
             'sent_at' => now(),
         ]);
 
-        if (in_array($profile->notification_method, ['email', 'both'], true) && filled($user->email)) {
+        if (filled($user->email)) {
             $this->queueEmail($user, $notification, $payload);
             $notification->update(['delivery_status' => 'queued']);
         }
@@ -91,6 +100,8 @@ class NotificationService
                 ],
             ]);
         }
+
+        $this->sessionReminderService->syncForSession($session);
     }
 
     public function sessionStateChanged(CoachingSession $session, string $fromState, string $toState, ?int $actorUserId = null): void
@@ -138,6 +149,14 @@ class NotificationService
                     'to_state' => $toState,
                 ],
             ]);
+        }
+
+        if ($this->normalizeState($toState) === 'scheduled') {
+            $this->sessionReminderService->syncForSession($session);
+        }
+
+        if (in_array($this->normalizeState($toState), ['live', 'interrupted', 'completed', 'failed'], true)) {
+            $this->sessionReminderService->cancelPendingForSession($session, 'Session moved out of scheduled state.');
         }
     }
 
@@ -238,6 +257,16 @@ class NotificationService
         ]);
     }
 
+    private function normalizeState(string $state): string
+    {
+        $normalized = trim(strtolower($state));
+
+        return match ($normalized) {
+            'in_progress' => 'live',
+            default => $normalized,
+        };
+    }
+
     private function coachSessionActionUrl(CoachingSession $session): string
     {
         return "/session/{$session->id}/coach-join";
@@ -256,23 +285,27 @@ class NotificationService
             $notification->category,
             $notification->session_id ?: 'none',
             $notification->coach_payout_id ?: 'none',
-            now()->format('YmdHisv'),
+            'email',
+            $notification->id,
         ]);
 
-        EmailOutbox::create([
-            'dedup_key' => $dedupKey,
-            'template_name' => 'generic_notification',
-            'recipient_email' => $user->email,
-            'recipient_name' => $user->name,
-            'subject' => $payload['title'],
-            'payload' => [
-                'title' => $payload['title'],
-                'body' => $payload['body'],
-                'action_url' => $payload['action_url'] ?? null,
-                'notification_id' => $notification->id,
-            ],
-            'status' => 'pending',
-            'scheduled_for' => now(),
-        ]);
+        EmailOutbox::updateOrCreate(
+            ['dedup_key' => $dedupKey],
+            [
+                'user_notification_id' => $notification->id,
+                'template_name' => 'generic_notification',
+                'recipient_email' => $user->email,
+                'recipient_name' => $user->name,
+                'subject' => $payload['title'],
+                'payload' => [
+                    'title' => $payload['title'],
+                    'body' => $payload['body'],
+                    'action_url' => $payload['action_url'] ?? null,
+                    'notification_id' => $notification->id,
+                ],
+                'status' => 'pending',
+                'scheduled_for' => now(),
+            ]
+        );
     }
 }

@@ -12,10 +12,10 @@ use App\Models\Session\SessionVideoDetail;
 use App\Services\Coach\CoachAvailabilityService;
 use App\Services\Communication\NotificationService;
 use App\Services\Session\SessionPricingService;
+use App\Services\Video\DailyRestApiService;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Http;
 
 class SessionController extends BaseController
 {
@@ -24,7 +24,8 @@ class SessionController extends BaseController
     public function __construct(
         private CoachAvailabilityService $availabilityService,
         private NotificationService $notificationService,
-        private SessionPricingService $sessionPricingService
+        private SessionPricingService $sessionPricingService,
+        private DailyRestApiService $dailyService
     ) {
     }
 
@@ -91,7 +92,7 @@ class SessionController extends BaseController
             return $this->error($slotError, 422);
         }
 
-        $room = $this->createDailyRoom();
+        $room = $this->dailyService->createRoom();
 
         if (empty($room['name']) || empty($room['url'])) {
             return $this->error('Could not create video room', 500);
@@ -175,7 +176,7 @@ class SessionController extends BaseController
                 return $this->error('Insufficient tokens', 422);
             }
 
-            $room = $this->createDailyRoom();
+            $room = $this->dailyService->createRoom();
 
             if (empty($room['name']) || empty($room['url'])) {
                 return response()->json([
@@ -258,46 +259,4 @@ class SessionController extends BaseController
             && !filter_var((string) env('ENABLE_LOCAL_SESSION_BILLING', false), FILTER_VALIDATE_BOOLEAN);
     }
 
-    private function createDailyRoom(): array
-    {
-        if (app()->environment('local') && filter_var(env('DAILY_USE_FAKE_ROOM', true), FILTER_VALIDATE_BOOLEAN)) {
-            $suffix = now()->format('YmdHis');
-
-            return [
-                'id' => 'local-test-room-' . $suffix,
-                'name' => 'local_test_room_' . $suffix,
-                'url' => 'https://example.daily.co/local-test-room-' . $suffix,
-            ];
-        }
-
-        $apiKey = config('services.daily.api_key');
-
-        if (empty($apiKey)) {
-            throw new \RuntimeException('DAILY_API_KEY is missing');
-        }
-
-        $response = Http::withToken($apiKey)
-            ->acceptJson()
-            ->post('https://api.daily.co/v1/rooms', [
-                'name' => 'session_' . uniqid(),
-                'privacy' => 'public',
-                'properties' => [
-                    'max_participants' => 2,
-                    'enable_chat' => true,
-                    'enable_screenshare' => true,
-                    'start_video_off' => false,
-                    'start_audio_off' => false,
-                ],
-            ]);
-
-        if (!$response->successful()) {
-            throw new \RuntimeException('Daily room creation failed: ' . ($response->json('info') ?: $response->body()));
-        }
-
-        return [
-            'id' => $response->json('id'),
-            'name' => $response->json('name'),
-            'url' => $response->json('url'),
-        ];
-    }
 }

@@ -3,6 +3,7 @@
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\Admin\AdminController;
 use App\Http\Controllers\Api\Admin\PayoutController;
+use App\Http\Controllers\Api\Admin\AdminNotificationController;
 
 Route::prefix('admin')
     ->middleware(['auth:sanctum', 'role:admin'])
@@ -18,6 +19,8 @@ Route::prefix('admin')
 
         Route::get('/transcripts', [AdminController::class, 'transcripts']);
         Route::get('/transcripts/{id}', [AdminController::class, 'transcript']);
+
+        Route::get('/delivery-logs', [AdminNotificationController::class, 'deliveryLogs']);
 
         Route::get('/finance/overview', [PayoutController::class, 'overview']);
         Route::get('/client-wallets', [PayoutController::class, 'clientWallets']);

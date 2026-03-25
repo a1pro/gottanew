@@ -4,30 +4,33 @@ namespace App\Models\Communication;
 
 use Illuminate\Database\Eloquent\Model;
 
-class UserNotification extends Model
+class ScheduledNotification extends Model
 {
     protected $fillable = [
         'user_id',
         'session_id',
-        'coach_payout_id',
+        'user_notification_id',
+        'reminder_key',
         'category',
         'priority',
         'title',
         'body',
         'action_url',
-        'channel',
-        'delivery_status',
         'metadata',
-        'is_read',
-        'read_at',
+        'send_at',
+        'status',
         'sent_at',
+        'cancelled_at',
+        'failed_at',
+        'last_error',
     ];
 
     protected $casts = [
         'metadata' => 'array',
-        'is_read' => 'boolean',
-        'read_at' => 'datetime',
+        'send_at' => 'datetime',
         'sent_at' => 'datetime',
+        'cancelled_at' => 'datetime',
+        'failed_at' => 'datetime',
     ];
 
     public function user()
@@ -40,19 +43,8 @@ class UserNotification extends Model
         return $this->belongsTo(\App\Models\Session\CoachingSession::class, 'session_id');
     }
 
-    public function coachPayout()
+    public function notification()
     {
-        return $this->belongsTo(\App\Models\Finance\CoachPayout::class, 'coach_payout_id');
-    }
-
-    public function emailOutboxes()
-    {
-        return $this->hasMany(\App\Models\Communication\EmailOutbox::class, 'user_notification_id');
-    }
-
-    public function messageOutboxes()
-    {
-        return $this->hasMany(\App\Models\Communication\MessageOutbox::class, 'user_notification_id');
+        return $this->belongsTo(UserNotification::class, 'user_notification_id');
     }
 }
-

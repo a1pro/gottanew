@@ -4,6 +4,8 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\Session\SessionPortalController;
 use App\Http\Controllers\Api\Session\SessionCollaborationController;
 
+Route::get('/sessions/{id}/stream', [SessionCollaborationController::class, 'stream']);
+
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/sessions/{id}', [SessionPortalController::class, 'show']);
     Route::get('/sessions/{id}/join', [SessionPortalController::class, 'join']);
@@ -27,4 +29,5 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::post('/sessions/{id}/consent', [SessionPortalController::class, 'saveConsent']);
     Route::put('/sessions/{id}/recording', [SessionPortalController::class, 'updateRecording']);
+    Route::post('/sessions/{id}/sync-daily-assets', [SessionPortalController::class, 'syncDailyAssets']);
 });
