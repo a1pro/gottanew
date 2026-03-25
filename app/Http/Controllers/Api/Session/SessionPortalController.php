@@ -11,9 +11,11 @@ use App\Models\Session\SessionRecording;
 use App\Models\Session\SessionStateLog;
 use App\Models\Session\SessionVideoDetail;
 use App\Services\Communication\NotificationService;
+use App\Services\Video\DailyRestApiService;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
 
 class SessionPortalController extends BaseController
 {
@@ -21,8 +23,10 @@ class SessionPortalController extends BaseController
     private const RECOVERY_BUFFER_MINUTES = 20;
     private const SESSION_CONSENT_VERSION = '2026-03';
 
-    public function __construct(private NotificationService $notificationService)
-    {
+    public function __construct(
+        private NotificationService $notificationService,
+        private DailyRestApiService $dailyService,
+    ) {
     }
 
     private function getAuthorizedSession(Request $request, $id): CoachingSession
@@ -359,6 +363,10 @@ class SessionPortalController extends BaseController
 
             DB::commit();
 
+            if ($action === 'mark_failed') {
+                $this->stopDailyCaptureIfNeeded($session->fresh(['videoDetail', 'recording']));
+            }
+
             $session = $session->fresh(['coach', 'client', 'videoDetail', 'recording', 'participants', 'stateLogs']);
 
             if ($fromState !== $session->status) {
@@ -538,6 +546,10 @@ class SessionPortalController extends BaseController
 
             DB::commit();
 
+            if (in_array($toState, ['completed', 'failed'], true)) {
+                $this->stopDailyCaptureIfNeeded($session->fresh(['videoDetail', 'recording']));
+            }
+
             $session = $session->fresh(['coach', 'client', 'videoDetail', 'recording', 'participants', 'stateLogs']);
             $this->notificationService->sessionStateChanged($session, $fromState, $toState, optional($request->user())->id);
 
@@ -622,15 +634,9 @@ class SessionPortalController extends BaseController
                 'ended_at' => now()->toISOString(),
             ]);
 
-            $recording = $this->ensureSessionRecording($session);
-            if (($recording->privacy_settings['transcription_consent'] ?? 'none') === 'full' && empty($recording->transcript)) {
-                $recording->update([
-                    'transcription_status' => 'completed',
-                    'ai_summary' => $recording->ai_summary ?: 'Transcript/AI summary pipeline pending implementation.',
-                ]);
-            }
-
             DB::commit();
+
+            $this->stopDailyCaptureIfNeeded($session->fresh(['videoDetail', 'recording']));
 
             $session = $session->fresh(['coach', 'client', 'videoDetail', 'recording', 'participants', 'stateLogs']);
             $this->notificationService->sessionStateChanged($session, $fromState, 'completed', optional($request->user())->id);
@@ -785,6 +791,7 @@ class SessionPortalController extends BaseController
 
         $refreshed = $session->fresh(['coach', 'client', 'videoDetail', 'recording', 'participants', 'stateLogs']);
         if ($refreshed) {
+            $this->stopDailyCaptureIfNeeded($refreshed->fresh(['videoDetail', 'recording']));
             $this->notificationService->sessionStateChanged($refreshed, 'interrupted', 'failed', $changedBy);
             $session->fill($refreshed->getAttributes());
             $session->setRelations($refreshed->getRelations());
@@ -829,10 +836,13 @@ class SessionPortalController extends BaseController
     {
         $role = $this->resolveRole($session, $user);
 
+        $meetingToken = $this->buildMeetingToken($session, $user);
+
         return [
             'session_id' => $session->id,
             'video_join_url' => optional($session->videoDetail)->video_join_url,
             'video_join_url_with_token' => optional($session->videoDetail)->video_join_url,
+            'meeting_token' => $meetingToken,
             'daily_room_name' => optional($session->videoDetail)->daily_room_name,
             'status' => $session->status,
             'recording' => $session->recording,
@@ -989,7 +999,7 @@ class SessionPortalController extends BaseController
             return $session->videoDetail;
         }
 
-        $room = $this->createDailyRoom();
+        $room = $this->dailyService->createRoom();
 
         return SessionVideoDetail::updateOrCreate(
             ['session_id' => $session->id],
@@ -1002,47 +1012,72 @@ class SessionPortalController extends BaseController
         );
     }
 
-    private function createDailyRoom(): array
+    private function buildMeetingToken(CoachingSession $session, $user): ?string
     {
-        if (app()->environment('local') && filter_var(env('DAILY_USE_FAKE_ROOM', true), FILTER_VALIDATE_BOOLEAN)) {
-            $suffix = now()->format('YmdHis');
+        $roomName = optional($session->videoDetail)->daily_room_name;
 
-            return [
-                'id' => 'local-test-room-' . $suffix,
-                'name' => 'local_test_room_' . $suffix,
-                'url' => 'https://example.daily.co/local-test-room-' . $suffix,
-            ];
+        if (!$roomName || $this->dailyService->usingFakeRoom() || !$this->dailyService->isConfigured()) {
+            return null;
         }
 
-        $apiKey = config('services.daily.api_key');
-
-        if (empty($apiKey)) {
-            throw new \RuntimeException('DAILY_API_KEY is missing');
-        }
-
-        $response = Http::withToken($apiKey)
-            ->acceptJson()
-            ->post('https://api.daily.co/v1/rooms', [
-                'name' => 'session_' . uniqid(),
-                'privacy' => 'public',
-                'properties' => [
-                    'max_participants' => 2,
-                    'enable_chat' => true,
-                    'enable_screenshare' => true,
-                    'start_video_off' => false,
-                    'start_audio_off' => false,
-                ],
+        try {
+            return $this->dailyService->createMeetingToken($roomName, [
+                'nbf' => now()->subMinutes(10)->timestamp,
+                'exp' => now()->addHours(4)->timestamp,
+                'is_owner' => (int) optional($session->coach)->user_id === (int) $user->id,
+                'user_name' => (string) ($user->name ?? 'Participant'),
+                'user_id' => (string) $user->id,
+                'eject_after_elapsed' => max(1800, (((int) ($session->duration_minutes ?? 15)) + 20) * 60),
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('Daily meeting token generation failed', [
+                'session_id' => $session->id,
+                'user_id' => $user->id ?? null,
+                'message' => $e->getMessage(),
             ]);
 
-        if (!$response->successful()) {
-            throw new \RuntimeException('Daily room creation failed: ' . ($response->json('info') ?: $response->body()));
+            return null;
+        }
+    }
+
+    private function stopDailyCaptureIfNeeded(CoachingSession $session): void
+    {
+        $roomName = optional($session->videoDetail)->daily_room_name;
+        $recording = $session->recording ?: $this->ensureSessionRecording($session);
+        $privacy = $recording->privacy_settings ?? [];
+
+        if (!$roomName || $this->dailyService->usingFakeRoom() || !$this->dailyService->isConfigured()) {
+            return;
         }
 
-        return [
-            'id' => $response->json('id'),
-            'name' => $response->json('name'),
-            'url' => $response->json('url'),
-        ];
+        if (($privacy['transcription_consent'] ?? 'none') === 'full') {
+            try {
+                $payload = array_filter([
+                    'instanceId' => $recording->daily_transcript_instance_id,
+                ]);
+                $this->dailyService->stopTranscription($roomName, $payload);
+            } catch (\Throwable $e) {
+                Log::info('Daily transcription stop skipped', [
+                    'session_id' => $session->id,
+                    'message' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        if (($privacy['recording_enabled'] ?? false) === true) {
+            try {
+                $payload = array_filter([
+                    'instanceId' => $recording->daily_recording_instance_id,
+                    'type' => 'cloud',
+                ]);
+                $this->dailyService->stopRecording($roomName, $payload);
+            } catch (\Throwable $e) {
+                Log::info('Daily recording stop skipped', [
+                    'session_id' => $session->id,
+                    'message' => $e->getMessage(),
+                ]);
+            }
+        }
     }
 
     private function mergeRecoveryContext($existing, array $extra): array
@@ -1066,6 +1101,7 @@ class SessionPortalController extends BaseController
         return SessionRecording::firstOrCreate(
             ['session_id' => $session->id],
             [
+                'provider_name' => 'daily',
                 'transcription_status' => 'inactive',
                 'privacy_settings' => [
                     'recording_enabled' => false,

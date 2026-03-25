@@ -3,6 +3,7 @@
 namespace App\Services\Communication;
 
 use App\Models\Communication\EmailOutbox;
+use App\Models\Communication\MessageOutbox;
 use App\Models\Communication\UserNotification;
 use App\Models\Core\Profile;
 use App\Models\Finance\CoachPayout;
@@ -14,6 +15,12 @@ use Illuminate\Support\Str;
 
 class NotificationService
 {
+    public function __construct(
+        private SessionReminderService $sessionReminderService,
+        private TwilioMessagingService $twilioMessagingService,
+    ) {
+    }
+
     public function createForUser(User $user, array $payload): UserNotification
     {
         $profile = Profile::query()->firstOrCreate(
@@ -41,8 +48,20 @@ class NotificationService
             'sent_at' => now(),
         ]);
 
+        $queuedAny = false;
+
         if (in_array($profile->notification_method, ['email', 'both'], true) && filled($user->email)) {
             $this->queueEmail($user, $notification, $payload);
+            $queuedAny = true;
+        }
+
+        foreach ($this->resolveMessageChannels($profile, $payload) as $channel) {
+            if ($this->queueMessage($user, $notification, $payload, $channel)) {
+                $queuedAny = true;
+            }
+        }
+
+        if ($queuedAny) {
             $notification->update(['delivery_status' => 'queued']);
         }
 
@@ -91,6 +110,8 @@ class NotificationService
                 ],
             ]);
         }
+
+        $this->sessionReminderService->syncForSession($session);
     }
 
     public function sessionStateChanged(CoachingSession $session, string $fromState, string $toState, ?int $actorUserId = null): void
@@ -138,6 +159,14 @@ class NotificationService
                     'to_state' => $toState,
                 ],
             ]);
+        }
+
+        if ($this->normalizeState($toState) === 'scheduled') {
+            $this->sessionReminderService->syncForSession($session);
+        }
+
+        if (in_array($this->normalizeState($toState), ['live', 'interrupted', 'completed', 'failed'], true)) {
+            $this->sessionReminderService->cancelPendingForSession($session, 'Session moved out of scheduled state.');
         }
     }
 
@@ -238,6 +267,16 @@ class NotificationService
         ]);
     }
 
+    private function normalizeState(string $state): string
+    {
+        $normalized = trim(strtolower($state));
+
+        return match ($normalized) {
+            'in_progress' => 'live',
+            default => $normalized,
+        };
+    }
+
     private function coachSessionActionUrl(CoachingSession $session): string
     {
         return "/session/{$session->id}/coach-join";
@@ -256,23 +295,143 @@ class NotificationService
             $notification->category,
             $notification->session_id ?: 'none',
             $notification->coach_payout_id ?: 'none',
-            now()->format('YmdHisv'),
+            'email',
+            $notification->id,
         ]);
 
-        EmailOutbox::create([
-            'dedup_key' => $dedupKey,
-            'template_name' => 'generic_notification',
-            'recipient_email' => $user->email,
-            'recipient_name' => $user->name,
-            'subject' => $payload['title'],
-            'payload' => [
-                'title' => $payload['title'],
-                'body' => $payload['body'],
-                'action_url' => $payload['action_url'] ?? null,
-                'notification_id' => $notification->id,
-            ],
-            'status' => 'pending',
-            'scheduled_for' => now(),
+        EmailOutbox::updateOrCreate(
+            ['dedup_key' => $dedupKey],
+            [
+                'user_notification_id' => $notification->id,
+                'template_name' => 'generic_notification',
+                'recipient_email' => $user->email,
+                'recipient_name' => $user->name,
+                'subject' => $payload['title'],
+                'payload' => [
+                    'title' => $payload['title'],
+                    'body' => $payload['body'],
+                    'action_url' => $payload['action_url'] ?? null,
+                    'notification_id' => $notification->id,
+                ],
+                'status' => 'pending',
+                'scheduled_for' => now(),
+            ]
+        );
+    }
+
+    private function queueMessage(User $user, UserNotification $notification, array $payload, string $channel): bool
+    {
+        $phone = $this->resolveMessagingPhone($user);
+        if (!$phone) {
+            return false;
+        }
+
+        $body = $this->renderMessageBody($payload);
+        $dedupKey = implode(':', [
+            'notification',
+            $notification->user_id,
+            $notification->category,
+            $notification->session_id ?: 'none',
+            $notification->coach_payout_id ?: 'none',
+            $channel,
+            $notification->id,
         ]);
+
+        MessageOutbox::updateOrCreate(
+            ['dedup_key' => $dedupKey],
+            [
+                'user_id' => $user->id,
+                'user_notification_id' => $notification->id,
+                'session_id' => $notification->session_id,
+                'provider' => 'twilio',
+                'channel' => $channel,
+                'recipient_phone' => $phone,
+                'sender_id' => null,
+                'body' => $body,
+                'payload' => [
+                    'title' => $payload['title'],
+                    'action_url' => $payload['action_url'] ?? null,
+                    'metadata' => $payload['metadata'] ?? null,
+                ],
+                'status' => 'pending',
+                'scheduled_for' => now(),
+            ]
+        );
+
+        return true;
+    }
+
+    private function resolveMessageChannels(Profile $profile, array $payload): array
+    {
+        $preferred = strtolower((string) ($payload['preferred_message_channel'] ?? ''));
+        if (in_array($preferred, ['sms', 'whatsapp'], true) && $this->twilioMessagingService->supportsChannel($preferred)) {
+            return [$preferred];
+        }
+
+        if (!in_array($profile->notification_method, ['whatsapp', 'both'], true)) {
+            return [];
+        }
+
+        if ($this->twilioMessagingService->supportsChannel('whatsapp')) {
+            return ['whatsapp'];
+        }
+
+        $fallback = $this->twilioMessagingService->preferredFallbackChannel();
+        return $fallback ? [$fallback] : [];
+    }
+
+    private function resolveMessagingPhone(User $user): ?string
+    {
+        $user->loadMissing(['profile', 'coachProfile']);
+
+        $candidates = [
+            $user->profile?->phone,
+            $user->coachProfile?->notification_phone,
+            $user->phone,
+        ];
+
+        foreach ($candidates as $phone) {
+            $normalized = $this->normalizePhone((string) $phone);
+            if ($normalized) {
+                return $normalized;
+            }
+        }
+
+        return null;
+    }
+
+    private function renderMessageBody(array $payload): string
+    {
+        $body = trim((string) ($payload['body'] ?? ''));
+        $actionUrl = trim((string) ($payload['action_url'] ?? ''));
+
+        if ($actionUrl === '') {
+            return $body;
+        }
+
+        return trim($body . "\n\nOpen: " . $actionUrl);
+    }
+
+    private function normalizePhone(string $value): ?string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return null;
+        }
+
+        $value = preg_replace('/[^\d+]/', '', $value) ?: '';
+        if (str_starts_with($value, '00')) {
+            $value = '+' . substr($value, 2);
+        }
+        if (!str_starts_with($value, '+')) {
+            $value = '+' . ltrim($value, '+');
+        }
+
+        $digits = preg_replace('/\D+/', '', $value) ?: '';
+        if (strlen($digits) < 8 || strlen($digits) > 15) {
+            return null;
+        }
+
+        return '+' . $digits;
     }
 }

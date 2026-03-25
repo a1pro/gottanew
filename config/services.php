@@ -36,6 +36,23 @@ return [
     ],
     'daily' => [
         'api_key' => env('DAILY_API_KEY'),
+        'transcription_language' => env('DAILY_TRANSCRIPTION_LANGUAGE', 'en'),
+        'transcription_model' => env('DAILY_TRANSCRIPTION_MODEL'),
+        'webhook_hmac' => env('DAILY_WEBHOOK_HMAC'),
+        'webhook_max_age_seconds' => (int) env('DAILY_WEBHOOK_MAX_AGE_SECONDS', 300),
+    ],
+
+
+    'twilio' => [
+        'account_sid' => env('TWILIO_ACCOUNT_SID'),
+        'auth_token' => env('TWILIO_AUTH_TOKEN'),
+        'api_key' => env('TWILIO_API_KEY'),
+        'api_secret' => env('TWILIO_API_SECRET'),
+        'messaging_service_sid' => env('TWILIO_MESSAGING_SERVICE_SID'),
+        'sms_from' => env('TWILIO_SMS_FROM'),
+        'whatsapp_from' => env('TWILIO_WHATSAPP_FROM'),
+        'status_callback_url' => env('TWILIO_STATUS_CALLBACK_URL'),
+        'use_sms_fallback_for_whatsapp' => filter_var(env('TWILIO_USE_SMS_FALLBACK_FOR_WHATSAPP', true), FILTER_VALIDATE_BOOL),
     ],
 
     'stripe' => [
