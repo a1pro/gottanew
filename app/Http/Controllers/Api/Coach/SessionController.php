@@ -2,10 +2,11 @@
 
 namespace App\Http\Controllers\Api\Coach;
 
-use Illuminate\Http\Request;
 use App\Http\Controllers\Api\BaseController;
 use App\Models\Session\CoachingSession;
 use App\Models\Session\SessionStateLog;
+use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 
 class SessionController extends BaseController
 {
@@ -24,7 +25,15 @@ class SessionController extends BaseController
     {
         $coach = $this->getCoach($request);
 
-        return CoachingSession::with(['client', 'coach', 'videoDetail'])
+        return CoachingSession::with([
+            'client:id,name,email',
+            'coach',
+            'videoDetail',
+            'recording',
+            'stateLogs' => fn ($query) => $query->latest('created_at')->limit(10),
+            'introRequest.preferredCoach:id,name,title,timezone',
+            'introRequest.assignedCoach:id,name,title,timezone',
+        ])
             ->where('coach_id', $coach->id)
             ->findOrFail($id);
     }
@@ -33,31 +42,24 @@ class SessionController extends BaseController
     {
         $coach = $this->getCoach($request);
 
-        $sessions = CoachingSession::with(['client', 'videoDetail'])
+        $sessions = CoachingSession::with([
+            'client:id,name,email',
+            'videoDetail',
+            'recording',
+            'introRequest.preferredCoach:id,name,title,timezone',
+            'introRequest.assignedCoach:id,name,title,timezone',
+        ])
             ->where('coach_id', $coach->id)
             ->orderBy('scheduled_time')
             ->get()
-            ->map(function (CoachingSession $session) {
-                return [
-                    'id' => $session->id,
-                    'status' => $session->status,
-                    'scheduled_time' => optional($session->scheduled_time)?->toISOString(),
-                    'duration_minutes' => $session->duration_minutes,
-                    'client_name' => optional($session->client)->name,
-                    'client' => $session->client,
-                    'video_detail' => $session->videoDetail,
-                    'created_at' => optional($session->created_at)?->toISOString(),
-                    'is_intro_session' => (bool) $session->is_intro_session,
-                    'coach_notes' => $session->coach_notes,
-                ];
-            });
+            ->map(fn (CoachingSession $session) => $this->serializeSession($session));
 
         return $this->success($sessions);
     }
 
     public function show(Request $request, $id)
     {
-        return $this->success($this->getAuthorizedSession($request, $id));
+        return $this->success($this->serializeSession($this->getAuthorizedSession($request, $id), true));
     }
 
     public function saveNotes(Request $request, $id)
@@ -72,7 +74,15 @@ class SessionController extends BaseController
             'coach_notes' => $validated['notes'] ?? null,
         ]);
 
-        return $this->success($session->fresh(['client', 'coach', 'videoDetail']), 'Notes saved');
+        return $this->success($this->serializeSession($session->fresh([
+            'client:id,name,email',
+            'coach',
+            'videoDetail',
+            'recording',
+            'stateLogs' => fn ($query) => $query->latest('created_at')->limit(10),
+            'introRequest.preferredCoach:id,name,title,timezone',
+            'introRequest.assignedCoach:id,name,title,timezone',
+        ]), true), 'Notes saved');
     }
 
     public function start(Request $request, $id)
@@ -95,9 +105,89 @@ class SessionController extends BaseController
             ]);
         }
 
+        $fresh = $session->fresh([
+            'client:id,name,email',
+            'coach',
+            'videoDetail',
+            'recording',
+            'stateLogs' => fn ($query) => $query->latest('created_at')->limit(10),
+            'introRequest.preferredCoach:id,name,title,timezone',
+            'introRequest.assignedCoach:id,name,title,timezone',
+        ]);
+
         return $this->success([
-            'session' => $session->fresh(['client', 'coach', 'videoDetail']),
-            'video_join_url' => optional($session->videoDetail)->video_join_url,
+            'session' => $this->serializeSession($fresh, true),
+            'video_join_url' => optional($fresh->videoDetail)->video_join_url,
         ], 'Session started');
+    }
+
+    private function serializeSession(CoachingSession $session, bool $includeStateLogs = false): array
+    {
+        $recording = $session->recording;
+        $introRequest = $session->introRequest;
+
+        $payload = [
+            'id' => (int) $session->id,
+            'status' => $session->status,
+            'scheduled_time' => optional($session->scheduled_time)?->toISOString(),
+            'duration_minutes' => (int) ($session->duration_minutes ?? 15),
+            'client_name' => optional($session->client)->name,
+            'client' => $session->client ? [
+                'id' => (int) $session->client->id,
+                'name' => $session->client->name,
+                'email' => $session->client->email,
+            ] : null,
+            'video_detail' => $session->videoDetail ? [
+                'video_join_url' => $session->videoDetail->video_join_url,
+                'daily_room_name' => $session->videoDetail->daily_room_name,
+                'room_created_at' => optional($session->videoDetail->room_created_at)?->toISOString(),
+            ] : null,
+            'created_at' => optional($session->created_at)?->toISOString(),
+            'is_intro_session' => (bool) $session->is_intro_session,
+            'coach_notes' => $session->coach_notes,
+            'recording' => $recording ? [
+                'transcription_status' => $recording->transcription_status,
+                'transcript_available' => filled($recording->transcript),
+                'transcript_preview' => filled($recording->transcript) ? Str::limit((string) $recording->transcript, 220) : null,
+                'ai_summary' => $recording->ai_summary,
+                'pre_session_summary' => $recording->pre_session_summary,
+                'post_session_summary' => $recording->post_session_summary,
+                'next_actions' => is_array($recording->next_actions) ? $recording->next_actions : [],
+                'key_topics' => is_array($recording->key_topics) ? $recording->key_topics : [],
+                'privacy_settings' => $recording->privacy_settings,
+                'feedback_rating' => $recording->feedback_rating,
+            ] : null,
+            'source_request' => $introRequest ? [
+                'id' => (int) $introRequest->id,
+                'status' => $introRequest->status,
+                'goal_summary' => $introRequest->goal_summary,
+                'request_notes' => $introRequest->request_notes,
+                'admin_notes' => $introRequest->admin_notes,
+                'viewer_timezone' => $introRequest->viewer_timezone,
+                'preferred_coach' => $introRequest->preferredCoach ? [
+                    'id' => (int) $introRequest->preferredCoach->id,
+                    'name' => $introRequest->preferredCoach->name,
+                    'title' => $introRequest->preferredCoach->title,
+                ] : null,
+                'assigned_coach' => $introRequest->assignedCoach ? [
+                    'id' => (int) $introRequest->assignedCoach->id,
+                    'name' => $introRequest->assignedCoach->name,
+                    'title' => $introRequest->assignedCoach->title,
+                ] : null,
+            ] : null,
+        ];
+
+        if ($includeStateLogs) {
+            $payload['state_logs'] = $session->stateLogs->map(fn (SessionStateLog $log) => [
+                'id' => (int) $log->id,
+                'from_state' => $log->from_state,
+                'to_state' => $log->to_state,
+                'change_reason' => $log->change_reason,
+                'metadata' => $log->metadata,
+                'created_at' => optional($log->created_at)?->toISOString(),
+            ])->values()->all();
+        }
+
+        return $payload;
     }
 }
