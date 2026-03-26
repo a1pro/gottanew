@@ -13,9 +13,11 @@ use App\Services\Coach\CoachAvailabilityService;
 use App\Services\Communication\NotificationService;
 use App\Services\Session\SessionPricingService;
 use App\Services\Video\DailyRestApiService;
+use App\Support\Timezone;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class SessionController extends BaseController
 {
@@ -37,9 +39,43 @@ class SessionController extends BaseController
             return $this->error('Unauthenticated', 401);
         }
 
-        return $this->success(
-            $user->clientSessions()->with(['coach', 'videoDetail'])->latest()->get()
-        );
+        $sessions = $user->clientSessions()
+            ->with([
+                'coach',
+                'videoDetail',
+                'recording',
+                'introRequest.preferredCoach:id,name,title,timezone',
+                'introRequest.assignedCoach:id,name,title,timezone',
+            ])
+            ->latest('scheduled_time')
+            ->get()
+            ->map(fn (CoachingSession $session) => $this->serializeSession($session));
+
+        return $this->success($sessions);
+    }
+
+    public function show(Request $request, int $id)
+    {
+        $user = $request->user();
+
+        if (!$user) {
+            return $this->error('Unauthenticated', 401);
+        }
+
+        $session = CoachingSession::query()
+            ->with([
+                'coach',
+                'client:id,name,email',
+                'videoDetail',
+                'recording',
+                'stateLogs' => fn ($query) => $query->latest('created_at')->limit(10),
+                'introRequest.preferredCoach:id,name,title,timezone',
+                'introRequest.assignedCoach:id,name,title,timezone',
+            ])
+            ->where('client_id', $user->id)
+            ->findOrFail($id);
+
+        return $this->success($this->serializeSession($session, true));
     }
 
     public function store(Request $request)
@@ -53,7 +89,7 @@ class SessionController extends BaseController
         $validated = $request->validate([
             'coach_id' => ['required', 'exists:coaches,id'],
             'scheduled_time' => ['required', 'date', 'after:now'],
-            'viewer_timezone' => ['required', 'timezone'],
+            'viewer_timezone' => ['required', 'string', 'max:100'],
             'duration_minutes' => ['nullable', 'integer', 'in:15'],
         ]);
 
@@ -80,11 +116,14 @@ class SessionController extends BaseController
             return $this->error('You need at least 1 token in your wallet to book this session.', 422);
         }
 
+        $viewerTimezone = Timezone::normalize($validated['viewer_timezone'] ?? 'UTC', 'UTC');
         $scheduledStart = CarbonImmutable::parse($validated['scheduled_time']);
+        $scheduledStartUtc = $scheduledStart->setTimezone('UTC');
+
         $slotError = $this->availabilityService->validateRequestedSlot(
             $coach,
             $scheduledStart,
-            $validated['viewer_timezone'],
+            $viewerTimezone,
             self::FIXED_DURATION_MINUTES
         );
 
@@ -98,12 +137,12 @@ class SessionController extends BaseController
             return $this->error('Could not create video room', 500);
         }
 
-        $session = DB::transaction(function () use ($user, $coach, $validated, $room, $tokenCost, $isIntroSession, $pricing) {
+        $session = DB::transaction(function () use ($user, $coach, $room, $tokenCost, $isIntroSession, $pricing, $scheduledStartUtc, $viewerTimezone) {
             $session = CoachingSession::create([
                 'client_id' => $user->id,
                 'coach_id' => $coach->id,
                 'duration_minutes' => self::FIXED_DURATION_MINUTES,
-                'scheduled_time' => $validated['scheduled_time'],
+                'scheduled_time' => $scheduledStartUtc->toDateTimeString(),
                 'status' => 'scheduled',
                 'price_amount' => $tokenCost,
                 'price_currency' => 'TOKEN',
@@ -125,19 +164,29 @@ class SessionController extends BaseController
                 'changed_by' => $user->id,
                 'change_reason' => $isIntroSession ? 'Free intro session booked' : 'Session booked',
                 'metadata' => [
-                    'scheduled_time' => $validated['scheduled_time'],
+                    'scheduled_time' => $scheduledStartUtc->toIso8601String(),
+                    'scheduled_time_in_viewer_timezone' => $scheduledStartUtc->setTimezone($viewerTimezone)->toIso8601String(),
                     'duration_minutes' => self::FIXED_DURATION_MINUTES,
-                    'viewer_timezone' => $validated['viewer_timezone'],
+                    'viewer_timezone' => $viewerTimezone,
                     'billing' => $pricing,
                 ],
             ]);
 
-            return $session->load(['coach', 'videoDetail']);
+            return $session->load([
+                'coach',
+                'videoDetail',
+                'recording',
+                'introRequest.preferredCoach:id,name,title,timezone',
+                'introRequest.assignedCoach:id,name,title,timezone',
+            ]);
         });
 
         $this->notificationService->sessionBooked($session);
 
-        return $this->success($session, $isIntroSession ? 'Free intro session booked successfully' : 'Session booked successfully');
+        return $this->success(
+            $this->serializeSession($session),
+            $isIntroSession ? 'Free intro session booked successfully' : 'Session booked successfully'
+        );
     }
 
     public function instant(Request $request)
@@ -233,12 +282,18 @@ class SessionController extends BaseController
                     ],
                 ]);
 
-                return $session->load(['coach', 'videoDetail']);
+                return $session->load([
+                    'coach',
+                    'videoDetail',
+                    'recording',
+                    'introRequest.preferredCoach:id,name,title,timezone',
+                    'introRequest.assignedCoach:id,name,title,timezone',
+                ]);
             });
 
             $this->notificationService->sessionBooked($session);
 
-            return $this->success($session, $isIntroSession ? 'Free intro session created' : 'Instant session created');
+            return $this->success($this->serializeSession($session), $isIntroSession ? 'Free intro session created' : 'Instant session created');
         } catch (\Throwable $e) {
             \Log::error('Instant session failed', [
                 'message' => $e->getMessage(),
@@ -253,10 +308,85 @@ class SessionController extends BaseController
         }
     }
 
+    private function serializeSession(CoachingSession $session, bool $includeStateLogs = false): array
+    {
+        $recording = $session->recording;
+        $introRequest = $session->introRequest;
+
+        $payload = [
+            'id' => (int) $session->id,
+            'status' => $session->status,
+            'scheduled_time' => optional($session->scheduled_time)?->toISOString(),
+            'duration_minutes' => (int) ($session->duration_minutes ?? self::FIXED_DURATION_MINUTES),
+            'price_amount' => $session->price_amount,
+            'price_currency' => $session->price_currency,
+            'is_intro_session' => (bool) $session->is_intro_session,
+            'client_notes' => $session->client_notes,
+            'coach_notes' => $session->coach_notes,
+            'created_at' => optional($session->created_at)?->toISOString(),
+            'updated_at' => optional($session->updated_at)?->toISOString(),
+            'coach' => $session->coach ? [
+                'id' => (int) $session->coach->id,
+                'name' => $session->coach->name,
+                'title' => $session->coach->title,
+                'timezone' => $session->coach->timezone,
+                'avatar_url' => $session->coach->avatar_url ?? null,
+            ] : null,
+            'video_detail' => $session->videoDetail ? [
+                'video_join_url' => $session->videoDetail->video_join_url,
+                'daily_room_name' => $session->videoDetail->daily_room_name,
+                'room_created_at' => optional($session->videoDetail->room_created_at)?->toISOString(),
+            ] : null,
+            'recording' => $recording ? [
+                'transcription_status' => $recording->transcription_status,
+                'transcript_available' => filled($recording->transcript),
+                'transcript_preview' => filled($recording->transcript) ? Str::limit((string) $recording->transcript, 220) : null,
+                'ai_summary' => $recording->ai_summary,
+                'pre_session_summary' => $recording->pre_session_summary,
+                'post_session_summary' => $recording->post_session_summary,
+                'next_actions' => is_array($recording->next_actions) ? $recording->next_actions : [],
+                'key_topics' => is_array($recording->key_topics) ? $recording->key_topics : [],
+                'privacy_settings' => $recording->privacy_settings,
+                'feedback_rating' => $recording->feedback_rating,
+            ] : null,
+            'source_request' => $introRequest ? [
+                'id' => (int) $introRequest->id,
+                'status' => $introRequest->status,
+                'goal_summary' => $introRequest->goal_summary,
+                'request_notes' => $introRequest->request_notes,
+                'admin_notes' => $introRequest->admin_notes,
+                'viewer_timezone' => $introRequest->viewer_timezone,
+                'approved_at' => optional($introRequest->approved_at)?->toISOString(),
+                'preferred_coach' => $introRequest->preferredCoach ? [
+                    'id' => (int) $introRequest->preferredCoach->id,
+                    'name' => $introRequest->preferredCoach->name,
+                    'title' => $introRequest->preferredCoach->title,
+                ] : null,
+                'assigned_coach' => $introRequest->assignedCoach ? [
+                    'id' => (int) $introRequest->assignedCoach->id,
+                    'name' => $introRequest->assignedCoach->name,
+                    'title' => $introRequest->assignedCoach->title,
+                ] : null,
+            ] : null,
+        ];
+
+        if ($includeStateLogs) {
+            $payload['state_logs'] = $session->stateLogs->map(fn (SessionStateLog $log) => [
+                'id' => (int) $log->id,
+                'from_state' => $log->from_state,
+                'to_state' => $log->to_state,
+                'change_reason' => $log->change_reason,
+                'metadata' => $log->metadata,
+                'created_at' => optional($log->created_at)?->toISOString(),
+            ])->values()->all();
+        }
+
+        return $payload;
+    }
+
     private function shouldSkipTokenChecks(): bool
     {
         return app()->environment('local')
             && !filter_var((string) env('ENABLE_LOCAL_SESSION_BILLING', false), FILTER_VALIDATE_BOOLEAN);
     }
-
 }

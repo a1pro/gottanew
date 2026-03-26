@@ -4,6 +4,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\Admin\AdminController;
 use App\Http\Controllers\Api\Admin\PayoutController;
 use App\Http\Controllers\Api\Admin\AdminNotificationController;
+use App\Http\Controllers\Api\Admin\SessionRequestAdminController;
 
 Route::prefix('admin')
     ->middleware(['auth:sanctum', 'role:admin'])
@@ -13,6 +14,11 @@ Route::prefix('admin')
         Route::get('/pending-applications', [AdminController::class, 'pendingApplications']);
         Route::post('/coaches/invite', [AdminController::class, 'inviteCoach']);
         Route::post('/approve-coach/{id}', [AdminController::class, 'approveApplication']);
+
+        Route::get('/session-requests', [SessionRequestAdminController::class, 'index']);
+        Route::get('/session-requests/assignable-coaches', [SessionRequestAdminController::class, 'assignableCoaches']);
+        Route::post('/session-requests/{id}/approve', [SessionRequestAdminController::class, 'approve']);
+        Route::post('/session-requests/{id}/reject', [SessionRequestAdminController::class, 'reject']);
 
         Route::get('/sessions', [AdminController::class, 'sessions']);
         Route::get('/failed-sessions', [AdminController::class, 'failedSessions']);

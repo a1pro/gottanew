@@ -84,4 +84,9 @@ class CoachingSession extends Model
     {
         return $this->hasMany(SessionParticipant::class, 'session_id');
     }
+
+    public function introRequest()
+    {
+        return $this->hasOne(SessionRequest::class, 'approved_session_id');
+    }
 }

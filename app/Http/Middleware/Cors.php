@@ -11,12 +11,17 @@ class Cors
     /**
      * Allowed origins
      */
-    protected $allowedOrigins = [
+    protected array $allowedOrigins = [
         'http://localhost:3000',
-        'http://127.0.0.1:8000',
-        'http://127.0.0.1:8080',
-        'http://localhost:5173',
         'http://127.0.0.1:3000',
+        'http://localhost:4173',
+        'http://127.0.0.1:4173',
+        'http://localhost:5173',
+        'http://127.0.0.1:5173',
+        'http://localhost:8000',
+        'http://127.0.0.1:8000',
+        'http://localhost:8080',
+        'http://127.0.0.1:8080',
         'https://gotta.a1professionals.net',
         'https://gottaweb.a1professionals.net',
     ];
@@ -28,32 +33,36 @@ class Cors
      */
     public function handle(Request $request, Closure $next): Response
     {
-        $origin = $request->header('Origin');
-        
-        // Check if origin is allowed
-        if (in_array($origin, $this->allowedOrigins)) {
-            // Handle preflight OPTIONS request
-            if ($request->isMethod('OPTIONS')) {
-                return response('', 200)
-                    ->header('Access-Control-Allow-Origin', $origin)
-                    ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS')
-                    ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, X-CSRF-TOKEN')
-                    ->header('Access-Control-Allow-Credentials', 'true')
-                    ->header('Access-Control-Max-Age', '86400');
+        $origin = $request->headers->get('Origin');
+        $isAllowedOrigin = $origin && in_array($origin, $this->allowedOrigins, true);
+
+        if ($request->isMethod('OPTIONS')) {
+            $response = response('', 204);
+
+            if ($isAllowedOrigin) {
+                $this->applyCorsHeaders($response, $origin);
             }
 
-            // Handle actual request
-            $response = $next($request);
-            
-            $response->headers->set('Access-Control-Allow-Origin', $origin);
-            $response->headers->set('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-            $response->headers->set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, X-CSRF-TOKEN');
-            $response->headers->set('Access-Control-Allow-Credentials', 'true');
-            
             return $response;
         }
 
-        // If origin not allowed, proceed normally
-        return $next($request);
+        /** @var Response $response */
+        $response = $next($request);
+
+        if ($isAllowedOrigin) {
+            $this->applyCorsHeaders($response, $origin);
+        }
+
+        return $response;
+    }
+
+    protected function applyCorsHeaders(Response $response, string $origin): void
+    {
+        $response->headers->set('Access-Control-Allow-Origin', $origin);
+        $response->headers->set('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+        $response->headers->set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, X-CSRF-TOKEN, Cache-Control, Last-Event-ID');
+        $response->headers->set('Access-Control-Allow-Credentials', 'true');
+        $response->headers->set('Access-Control-Expose-Headers', 'Cache-Control, Content-Type');
+        $response->headers->set('Vary', 'Origin');
     }
 }

@@ -136,8 +136,9 @@ class AdminController extends BaseController
         $query = CoachingSession::query()
             ->with([
                 'client:id,name,email',
-                'coach:id,name',
+                'coach:id,name,title',
                 'recording:id,session_id,transcription_status,transcript,ai_summary,pre_session_summary,post_session_summary,next_actions,key_topics,privacy_settings',
+                'introRequest:id,approved_session_id,status,goal_summary,request_notes,admin_notes,viewer_timezone,approved_at',
             ])
             ->whereHas('recording');
 
@@ -149,22 +150,38 @@ class AdminController extends BaseController
                             ->orWhere('email', 'like', "%{$q}%");
                     })
                     ->orWhereHas('coach', function ($sub) use ($q) {
-                        $sub->where('name', 'like', "%{$q}%");
+                        $sub->where('name', 'like', "%{$q}%")
+                            ->orWhere('title', 'like', "%{$q}%");
                     })
                     ->orWhereHas('recording', function ($sub) use ($q) {
                         $sub->where('transcript', 'like', "%{$q}%")
                             ->orWhere('ai_summary', 'like', "%{$q}%")
                             ->orWhere('pre_session_summary', 'like', "%{$q}%")
                             ->orWhere('post_session_summary', 'like', "%{$q}%");
+                    })
+                    ->orWhereHas('introRequest', function ($sub) use ($q) {
+                        $sub->where('goal_summary', 'like', "%{$q}%")
+                            ->orWhere('request_notes', 'like', "%{$q}%")
+                            ->orWhere('admin_notes', 'like', "%{$q}%");
                     });
             });
         }
+
+        $summaryBase = CoachingSession::query()->whereHas('recording');
 
         $sessions = $query
             ->latest('scheduled_time')
             ->paginate((int) $request->get('per_page', 10));
 
-        return $this->success($sessions);
+        return $this->success([
+            'data' => $sessions,
+            'summary' => [
+                'total' => (clone $summaryBase)->count(),
+                'intro_sessions' => (clone $summaryBase)->where('is_intro_session', true)->count(),
+                'with_transcript' => (clone $summaryBase)->whereHas('recording', fn ($sub) => $sub->whereNotNull('transcript')->where('transcript', '!=', ''))->count(),
+                'with_ai_summary' => (clone $summaryBase)->whereHas('recording', fn ($sub) => $sub->whereNotNull('ai_summary')->where('ai_summary', '!=', ''))->count(),
+            ],
+        ]);
     }
 
     public function transcript($id)
@@ -172,8 +189,11 @@ class AdminController extends BaseController
         $session = CoachingSession::query()
             ->with([
                 'client:id,name,email',
-                'coach:id,name',
+                'coach:id,name,title',
                 'recording',
+                'videoDetail:id,session_id,video_join_url,daily_room_name,room_created_at',
+                'introRequest:id,approved_session_id,status,goal_summary,request_notes,admin_notes,viewer_timezone,approved_at',
+                'stateLogs' => fn ($query) => $query->latest('created_at')->limit(10),
             ])
             ->findOrFail($id);
 

@@ -147,6 +147,10 @@ class CoachAvailabilityService
             return 'Only 15-minute sessions are allowed in the MVP.';
         }
 
+        if (((int) $scheduledStart->minute % 15) !== 0 || (int) $scheduledStart->second !== 0) {
+            return 'Please choose a 15-minute slot using :00, :15, :30, or :45.';
+        }
+
         $viewerTimezone = $this->normalizeTimezone($viewerTimezone, 'UTC');
         $localDate = $scheduledStart->setTimezone($viewerTimezone)->format('Y-m-d');
         $requestedTimestamp = $scheduledStart->setTimezone('UTC')->timestamp;
@@ -156,7 +160,7 @@ class CoachAvailabilityService
                 return CarbonImmutable::parse($slot['starts_at'])->setTimezone('UTC')->timestamp === $requestedTimestamp;
             });
 
-        return $matchingSlot ? null : 'Selected time is no longer available for this coach.';
+        return $matchingSlot ? null : 'Selected time is outside the coach\'s current 15-minute availability.';
     }
 
     private function loadBookedSessionsForWindow(

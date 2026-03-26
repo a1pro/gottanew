@@ -20,5 +20,6 @@ Route::prefix('client')->middleware('auth:sanctum')->group(function () {
     Route::post('/sessions/instant', [SessionController::class, 'instant']);
     Route::get('/sessions/{id}', [SessionController::class, 'show']);
 
-    Route::post('/connection-requests', [ConnectionRequestController::class, 'store']);
+    Route::get('/session-requests', [ConnectionRequestController::class, 'index']);
+    Route::post('/session-requests', [ConnectionRequestController::class, 'store']);
 });
