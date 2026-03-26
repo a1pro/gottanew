@@ -10,6 +10,7 @@ use App\Models\Session\CoachingSession;
 use App\Models\Session\SessionMessage;
 use App\Models\Session\SessionResource;
 use App\Models\User;
+use App\Support\Timezone;
 use Illuminate\Support\Str;
 
 class NotificationService
@@ -60,7 +61,7 @@ class NotificationService
 
     public function sessionBooked(CoachingSession $session): void
     {
-        $session->loadMissing(['coach.user', 'client']);
+        $session->loadMissing(['coach.user', 'client', 'stateLogs']);
 
         if ($session->coach?->user) {
             $this->createForUser($session->coach->user, [
@@ -72,7 +73,7 @@ class NotificationService
                     '%s booked a %d-minute session for %s.',
                     $session->client?->name ?? 'A client',
                     (int) ($session->duration_minutes ?? 15),
-                    optional($session->scheduled_time)->format('M d, Y h:i A') ?? 'the scheduled time'
+                    $this->formatSessionTimeForAudience($session, $session->coach->user)
                 ),
                 'action_url' => $this->coachSessionActionUrl($session),
                 'metadata' => [
@@ -91,7 +92,7 @@ class NotificationService
                 'body' => sprintf(
                     'Your session with %s is confirmed for %s.',
                     $session->coach?->name ?? 'your coach',
-                    optional($session->scheduled_time)->format('M d, Y h:i A') ?? 'the scheduled time'
+                    $this->formatSessionTimeForAudience($session, $session->client)
                 ),
                 'action_url' => "/session/{$session->id}",
                 'metadata' => [
@@ -106,7 +107,7 @@ class NotificationService
 
     public function sessionStateChanged(CoachingSession $session, string $fromState, string $toState, ?int $actorUserId = null): void
     {
-        $session->loadMissing(['coach.user', 'client']);
+        $session->loadMissing(['coach.user', 'client', 'stateLogs']);
 
         $targets = [];
         if ($session->client) {
@@ -255,6 +256,40 @@ class NotificationService
                 'payout_amount' => (float) $payout->payout_amount,
             ],
         ]);
+    }
+
+    private function formatSessionTimeForAudience(CoachingSession $session, User $recipient): string
+    {
+        $scheduledTime = $session->scheduled_time;
+
+        if (!$scheduledTime) {
+            return 'the scheduled time';
+        }
+
+        $isCoachRecipient = $session->coach && (int) $session->coach->user_id === (int) $recipient->id;
+        $timezone = $isCoachRecipient
+            ? Timezone::normalize($session->coach?->timezone, 'UTC')
+            : Timezone::normalize($this->resolveViewerTimezone($session), 'UTC');
+
+        return $scheduledTime->copy()->setTimezone($timezone)->format('M d, Y h:i A');
+    }
+
+    private function resolveViewerTimezone(CoachingSession $session): ?string
+    {
+        $stateLog = $session->relationLoaded('stateLogs')
+            ? $session->stateLogs
+                ->sortByDesc(fn ($log) => optional($log->created_at)?->getTimestamp() ?? 0)
+                ->first(fn ($log) => $log->to_state === 'scheduled')
+            : $session->stateLogs()
+                ->where('to_state', 'scheduled')
+                ->orderByDesc('created_at')
+                ->first();
+
+        $viewerTimezone = data_get($stateLog?->metadata ?? [], 'viewer_timezone');
+
+        return is_string($viewerTimezone) && trim($viewerTimezone) !== ''
+            ? $viewerTimezone
+            : null;
     }
 
     private function normalizeState(string $state): string

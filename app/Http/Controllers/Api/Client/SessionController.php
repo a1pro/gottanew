@@ -13,6 +13,7 @@ use App\Services\Coach\CoachAvailabilityService;
 use App\Services\Communication\NotificationService;
 use App\Services\Session\SessionPricingService;
 use App\Services\Video\DailyRestApiService;
+use App\Support\Timezone;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -80,11 +81,14 @@ class SessionController extends BaseController
             return $this->error('You need at least 1 token in your wallet to book this session.', 422);
         }
 
+        $viewerTimezone = Timezone::normalize($validated['viewer_timezone'] ?? 'UTC', 'UTC');
         $scheduledStart = CarbonImmutable::parse($validated['scheduled_time']);
+        $scheduledStartUtc = $scheduledStart->setTimezone('UTC');
+
         $slotError = $this->availabilityService->validateRequestedSlot(
             $coach,
             $scheduledStart,
-            $validated['viewer_timezone'],
+            $viewerTimezone,
             self::FIXED_DURATION_MINUTES
         );
 
@@ -98,12 +102,12 @@ class SessionController extends BaseController
             return $this->error('Could not create video room', 500);
         }
 
-        $session = DB::transaction(function () use ($user, $coach, $validated, $room, $tokenCost, $isIntroSession, $pricing) {
+        $session = DB::transaction(function () use ($user, $coach, $room, $tokenCost, $isIntroSession, $pricing, $scheduledStartUtc, $viewerTimezone) {
             $session = CoachingSession::create([
                 'client_id' => $user->id,
                 'coach_id' => $coach->id,
                 'duration_minutes' => self::FIXED_DURATION_MINUTES,
-                'scheduled_time' => $validated['scheduled_time'],
+                'scheduled_time' => $scheduledStartUtc->toDateTimeString(),
                 'status' => 'scheduled',
                 'price_amount' => $tokenCost,
                 'price_currency' => 'TOKEN',
@@ -125,9 +129,10 @@ class SessionController extends BaseController
                 'changed_by' => $user->id,
                 'change_reason' => $isIntroSession ? 'Free intro session booked' : 'Session booked',
                 'metadata' => [
-                    'scheduled_time' => $validated['scheduled_time'],
+                    'scheduled_time' => $scheduledStartUtc->toIso8601String(),
+                    'scheduled_time_in_viewer_timezone' => $scheduledStartUtc->setTimezone($viewerTimezone)->toIso8601String(),
                     'duration_minutes' => self::FIXED_DURATION_MINUTES,
-                    'viewer_timezone' => $validated['viewer_timezone'],
+                    'viewer_timezone' => $viewerTimezone,
                     'billing' => $pricing,
                 ],
             ]);
@@ -258,5 +263,4 @@ class SessionController extends BaseController
         return app()->environment('local')
             && !filter_var((string) env('ENABLE_LOCAL_SESSION_BILLING', false), FILTER_VALIDATE_BOOLEAN);
     }
-
 }
