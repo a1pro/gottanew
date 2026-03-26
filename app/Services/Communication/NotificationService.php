@@ -8,6 +8,7 @@ use App\Models\Core\Profile;
 use App\Models\Finance\CoachPayout;
 use App\Models\Session\CoachingSession;
 use App\Models\Session\SessionMessage;
+use App\Models\Session\SessionRequest;
 use App\Models\Session\SessionResource;
 use App\Models\User;
 use App\Support\Timezone;
@@ -59,6 +60,136 @@ class NotificationService
         return $notification;
     }
 
+    public function sessionRequestSubmitted(SessionRequest $sessionRequest): void
+    {
+        $sessionRequest->loadMissing(['client', 'preferredCoach']);
+
+        $admins = User::query()
+            ->whereHas('roles', fn ($query) => $query->where('role', 'admin'))
+            ->get();
+
+        foreach ($admins as $admin) {
+            $this->createForUser($admin, [
+                'category' => 'session_request',
+                'priority' => 'high',
+                'title' => 'New free intro request',
+                'body' => sprintf(
+                    '%s requested a free intro session%s.',
+                    $sessionRequest->client?->name ?: $sessionRequest->client?->email ?: 'A client',
+                    $sessionRequest->preferredCoach ? ' and prefers ' . $sessionRequest->preferredCoach->name : ''
+                ),
+                'action_url' => '/admin/session-requests',
+                'metadata' => [
+                    'session_request_id' => $sessionRequest->id,
+                    'client_id' => $sessionRequest->client_id,
+                    'preferred_coach_id' => $sessionRequest->preferred_coach_id,
+                    'status' => $sessionRequest->status,
+                ],
+            ]);
+        }
+
+        if ($sessionRequest->client) {
+            $this->createForUser($sessionRequest->client, [
+                'category' => 'session_request',
+                'priority' => 'normal',
+                'title' => 'Free intro request received',
+                'body' => 'Your request is in the admin review queue. We will assign a coach and confirm the session time soon.',
+                'action_url' => '/dashboard',
+                'metadata' => [
+                    'session_request_id' => $sessionRequest->id,
+                    'status' => $sessionRequest->status,
+                ],
+            ]);
+        }
+    }
+
+    public function sessionRequestApproved(SessionRequest $sessionRequest, CoachingSession $session): void
+    {
+        $sessionRequest->loadMissing(['client', 'assignedCoach.user', 'approvedSession.stateLogs']);
+        $session->loadMissing(['coach.user', 'client', 'stateLogs']);
+
+        if ($sessionRequest->client) {
+            $body = sprintf(
+                'Your free intro request has been approved. %s is scheduled for %s.',
+                $sessionRequest->assignedCoach?->name ?? 'Your coach',
+                $this->formatSessionTimeForAudience($session, $sessionRequest->client)
+            );
+
+            if (filled($sessionRequest->admin_notes)) {
+                $body .= ' Admin note: ' . Str::limit($sessionRequest->admin_notes, 120);
+            }
+
+            $this->createForUser($sessionRequest->client, [
+                'session_id' => $session->id,
+                'category' => 'session_request',
+                'priority' => 'high',
+                'title' => 'Free intro request approved',
+                'body' => $body,
+                'action_url' => $this->clientSessionActionUrl($session),
+                'metadata' => [
+                    'session_request_id' => $sessionRequest->id,
+                    'status' => $sessionRequest->status,
+                    'scheduled_time' => optional($session->scheduled_time)?->toISOString(),
+                    'admin_notes' => $sessionRequest->admin_notes,
+                ],
+            ]);
+        }
+
+        if ($sessionRequest->assignedCoach?->user) {
+            $coachBody = sprintf(
+                'Admin approved a free intro request with %s for %s.',
+                $sessionRequest->client?->name ?: 'a client',
+                $this->formatSessionTimeForAudience($session, $sessionRequest->assignedCoach->user)
+            );
+
+            if (filled($sessionRequest->goal_summary)) {
+                $coachBody .= ' Goal: ' . Str::limit($sessionRequest->goal_summary, 120);
+            }
+
+            $this->createForUser($sessionRequest->assignedCoach->user, [
+                'session_id' => $session->id,
+                'category' => 'session_request',
+                'priority' => 'high',
+                'title' => 'New intro session assigned',
+                'body' => $coachBody,
+                'action_url' => $this->coachSessionActionUrl($session),
+                'metadata' => [
+                    'session_request_id' => $sessionRequest->id,
+                    'status' => $sessionRequest->status,
+                    'goal_summary' => $sessionRequest->goal_summary,
+                    'request_notes' => $sessionRequest->request_notes,
+                ],
+            ]);
+        }
+    }
+
+    public function sessionRequestRejected(SessionRequest $sessionRequest): void
+    {
+        $sessionRequest->loadMissing(['client']);
+
+        if (!$sessionRequest->client) {
+            return;
+        }
+
+        $body = 'Your free intro request could not be scheduled yet. Please review the admin note and submit another request if needed.';
+        if (filled($sessionRequest->admin_notes)) {
+            $body .= ' Admin note: ' . Str::limit($sessionRequest->admin_notes, 160);
+        }
+
+        $this->createForUser($sessionRequest->client, [
+            'category' => 'session_request',
+            'priority' => 'normal',
+            'title' => 'Free intro request updated',
+            'body' => $body,
+            'action_url' => '/dashboard',
+            'metadata' => [
+                'session_request_id' => $sessionRequest->id,
+                'status' => $sessionRequest->status,
+                'admin_notes' => $sessionRequest->admin_notes,
+            ],
+        ]);
+    }
+
     public function sessionBooked(CoachingSession $session): void
     {
         $session->loadMissing(['coach.user', 'client', 'stateLogs']);
@@ -94,7 +225,7 @@ class NotificationService
                     $session->coach?->name ?? 'your coach',
                     $this->formatSessionTimeForAudience($session, $session->client)
                 ),
-                'action_url' => "/session/{$session->id}",
+                'action_url' => $this->clientSessionActionUrl($session),
                 'metadata' => [
                     'session_status' => $session->status,
                     'actor' => 'system',
@@ -102,6 +233,11 @@ class NotificationService
             ]);
         }
 
+        $this->sessionReminderService->syncForSession($session);
+    }
+
+    public function syncSessionReminders(CoachingSession $session): void
+    {
         $this->sessionReminderService->syncForSession($session);
     }
 

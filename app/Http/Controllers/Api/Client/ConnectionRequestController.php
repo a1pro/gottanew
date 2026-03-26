@@ -24,21 +24,32 @@ class ConnectionRequestController extends BaseController
             return $this->error('Unauthenticated', 401);
         }
 
-        $requests = SessionRequest::query()
+        $query = SessionRequest::query()
             ->with([
                 'preferredCoach:id,name,title,timezone',
                 'assignedCoach:id,name,title,timezone',
                 'approvedSession:id,status,scheduled_time,duration_minutes',
             ])
             ->where('client_id', $user->id)
-            ->latest()
-            ->paginate((int) $request->get('per_page', 10));
+            ->latest();
+
+        $summary = [
+            'total' => (clone $query)->count(),
+            'pending' => (clone $query)->where('status', 'pending')->count(),
+            'approved' => (clone $query)->where('status', 'approved')->count(),
+            'rejected' => (clone $query)->where('status', 'rejected')->count(),
+        ];
+
+        $requests = $query->paginate((int) $request->get('per_page', 10));
 
         $requests->setCollection(
             $requests->getCollection()->map(fn (SessionRequest $sessionRequest) => $this->serializeRequest($sessionRequest))
         );
 
-        return $this->success($requests);
+        return $this->success([
+            'data' => $requests,
+            'summary' => $summary,
+        ]);
     }
 
     public function store(Request $request)
@@ -79,40 +90,7 @@ class ConnectionRequestController extends BaseController
             'viewer_timezone' => Timezone::normalize($validated['viewer_timezone'] ?? 'UTC', 'UTC'),
         ]);
 
-        $admins = \App\Models\User::query()
-            ->whereHas('roles', fn ($query) => $query->where('role', 'admin'))
-            ->get();
-
-        foreach ($admins as $admin) {
-            $this->notificationService->createForUser($admin, [
-                'category' => 'session_request',
-                'priority' => 'high',
-                'title' => 'New free intro request',
-                'body' => sprintf(
-                    '%s requested a free intro session%s.',
-                    $user->name ?: $user->email,
-                    $preferredCoach ? ' and prefers ' . $preferredCoach->name : ''
-                ),
-                'action_url' => '/admin/session-requests',
-                'metadata' => [
-                    'session_request_id' => $sessionRequest->id,
-                    'client_id' => $user->id,
-                    'preferred_coach_id' => $preferredCoach?->id,
-                ],
-            ]);
-        }
-
-        $this->notificationService->createForUser($user, [
-            'category' => 'session_request',
-            'priority' => 'normal',
-            'title' => 'Free intro request received',
-            'body' => 'Your request is in the admin review queue. We will assign a coach and confirm the session time soon.',
-            'action_url' => '/dashboard',
-            'metadata' => [
-                'session_request_id' => $sessionRequest->id,
-                'status' => 'pending',
-            ],
-        ]);
+        $this->notificationService->sessionRequestSubmitted($sessionRequest->load(['client', 'preferredCoach']));
 
         return $this->success(
             $this->serializeRequest($sessionRequest->load(['preferredCoach', 'assignedCoach', 'approvedSession'])),
@@ -132,7 +110,9 @@ class ConnectionRequestController extends BaseController
             'viewer_timezone' => $sessionRequest->viewer_timezone,
             'scheduled_time' => optional($sessionRequest->scheduled_time)?->toISOString(),
             'created_at' => optional($sessionRequest->created_at)?->toISOString(),
-            'updated_at' => optional($sessionRequest->updated_at)?->toISOString(),
+            'reviewed_at' => optional($sessionRequest->reviewed_at)?->toISOString(),
+            'approved_at' => optional($sessionRequest->approved_at)?->toISOString(),
+            'rejected_at' => optional($sessionRequest->rejected_at)?->toISOString(),
             'preferred_coach' => $sessionRequest->preferredCoach ? [
                 'id' => (int) $sessionRequest->preferredCoach->id,
                 'name' => $sessionRequest->preferredCoach->name,

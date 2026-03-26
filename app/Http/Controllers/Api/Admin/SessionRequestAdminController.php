@@ -30,14 +30,17 @@ class SessionRequestAdminController extends BaseController
         $q = trim((string) $request->get('q', ''));
         $status = trim((string) $request->get('status', ''));
 
-        $requests = SessionRequest::query()
+        $baseQuery = SessionRequest::query()
             ->with([
                 'client:id,name,email',
                 'preferredCoach:id,name,title,timezone',
                 'assignedCoach:id,name,title,timezone,user_id,notification_email',
+                'assignedCoach.user:id,email',
                 'approvedSession:id,status,scheduled_time,duration_minutes',
                 'reviewer:id,name,email',
-            ])
+            ]);
+
+        $filteredQuery = (clone $baseQuery)
             ->when($status !== '' && $status !== 'all', fn ($query) => $query->where('status', $status))
             ->when($q !== '', function ($query) use ($q) {
                 $query->where(function ($builder) use ($q) {
@@ -54,7 +57,18 @@ class SessionRequestAdminController extends BaseController
                             $sub->where('name', 'like', "%{$q}%");
                         });
                 });
-            })
+            });
+
+        $summary = [
+            'total' => (clone $baseQuery)->count(),
+            'pending' => (clone $baseQuery)->where('status', 'pending')->count(),
+            'approved' => (clone $baseQuery)->where('status', 'approved')->count(),
+            'rejected' => (clone $baseQuery)->where('status', 'rejected')->count(),
+            'scheduled_sessions' => (clone $baseQuery)->whereNotNull('approved_session_id')->count(),
+        ];
+
+        $requests = $filteredQuery
+            ->orderByRaw("case when status = 'pending' then 0 else 1 end")
             ->latest()
             ->paginate((int) $request->get('per_page', 12));
 
@@ -62,7 +76,10 @@ class SessionRequestAdminController extends BaseController
             $requests->getCollection()->map(fn (SessionRequest $sessionRequest) => $this->serializeRequest($sessionRequest))
         );
 
-        return $this->success($requests);
+        return $this->success([
+            'data' => $requests,
+            'summary' => $summary,
+        ]);
     }
 
     public function assignableCoaches()
@@ -94,8 +111,8 @@ class SessionRequestAdminController extends BaseController
 
         $validated = $request->validate([
             'assigned_coach_id' => ['required', 'exists:coaches,id'],
-            'scheduled_time' => ['required', 'string', 'max:100'],
-            'viewer_timezone' => ['nullable', 'string', 'max:100'],
+            'scheduled_time' => ['required', 'date', 'after:now'],
+            'viewer_timezone' => ['required', 'string', 'max:100'],
             'admin_notes' => ['nullable', 'string', 'max:3000'],
         ]);
 
@@ -105,20 +122,13 @@ class SessionRequestAdminController extends BaseController
             return $this->error('Assigned coach is not active.', 422);
         }
 
-        $viewerTimezone = Timezone::normalize(
-            $validated['viewer_timezone'] ?? $sessionRequest->viewer_timezone ?? 'UTC',
-            'UTC'
-        );
-
-        $scheduledStartUtc = $this->parseRequestedTime((string) $validated['scheduled_time'], $viewerTimezone);
-
-        if (!$scheduledStartUtc || $scheduledStartUtc->lte(now('UTC'))) {
-            return $this->error('Please choose a future session time.', 422);
-        }
+        $viewerTimezone = Timezone::normalize($validated['viewer_timezone'], 'UTC');
+        $scheduledStart = CarbonImmutable::parse($validated['scheduled_time']);
+        $scheduledStartUtc = $scheduledStart->setTimezone('UTC');
 
         $slotError = $this->availabilityService->validateRequestedSlot(
             $coach,
-            $scheduledStartUtc,
+            $scheduledStart,
             $viewerTimezone,
             15
         );
@@ -170,6 +180,7 @@ class SessionRequestAdminController extends BaseController
                     'scheduled_time' => $scheduledStartUtc->toIso8601String(),
                     'request_id' => $sessionRequest->id,
                     'goal_summary' => $sessionRequest->goal_summary,
+                    'request_notes' => $sessionRequest->request_notes,
                 ],
             ]);
 
@@ -187,10 +198,12 @@ class SessionRequestAdminController extends BaseController
             return $session->load(['coach.user', 'client', 'videoDetail', 'stateLogs']);
         });
 
-        $this->notificationService->sessionBooked($session);
+        $sessionRequest->load(['client', 'assignedCoach.user', 'approvedSession', 'reviewer']);
+        $this->notificationService->sessionRequestApproved($sessionRequest, $session);
+        $this->notificationService->syncSessionReminders($session);
 
         return $this->success([
-            'request' => $this->serializeRequest($sessionRequest->fresh(['client', 'preferredCoach', 'assignedCoach', 'approvedSession', 'reviewer'])),
+            'request' => $this->serializeRequest($sessionRequest),
             'session_id' => (int) $session->id,
         ], 'Free intro request approved and scheduled successfully.');
     }
@@ -216,22 +229,9 @@ class SessionRequestAdminController extends BaseController
             'rejected_at' => now(),
         ]);
 
-        if ($sessionRequest->client) {
-            $this->notificationService->createForUser($sessionRequest->client, [
-                'category' => 'session_request',
-                'priority' => 'normal',
-                'title' => 'Free intro request updated',
-                'body' => 'Your free intro request could not be scheduled yet. Please review the admin note and submit another request if needed.',
-                'action_url' => '/dashboard',
-                'metadata' => [
-                    'session_request_id' => $sessionRequest->id,
-                    'status' => 'rejected',
-                    'admin_notes' => $validated['admin_notes'],
-                ],
-            ]);
-        }
+        $this->notificationService->sessionRequestRejected($sessionRequest->fresh(['client', 'reviewer']));
 
-        return $this->success($this->serializeRequest($sessionRequest->fresh(['client', 'preferredCoach', 'assignedCoach', 'approvedSession', 'reviewer'])), 'Request rejected.');
+        return $this->success($this->serializeRequest($sessionRequest->fresh(['client', 'preferredCoach', 'assignedCoach.user', 'approvedSession', 'reviewer'])), 'Request rejected.');
     }
 
     private function serializeRequest(SessionRequest $sessionRequest): array
@@ -264,7 +264,7 @@ class SessionRequestAdminController extends BaseController
                 'name' => $sessionRequest->assignedCoach->name,
                 'title' => $sessionRequest->assignedCoach->title,
                 'timezone' => $sessionRequest->assignedCoach->timezone,
-                'email' => $sessionRequest->assignedCoach->notification_email,
+                'email' => $sessionRequest->assignedCoach->notification_email ?: $sessionRequest->assignedCoach->user?->email,
             ] : null,
             'approved_session' => $sessionRequest->approvedSession ? [
                 'id' => (int) $sessionRequest->approvedSession->id,
@@ -278,31 +278,5 @@ class SessionRequestAdminController extends BaseController
                 'email' => $sessionRequest->reviewer->email,
             ] : null,
         ];
-    }
-
-    private function parseRequestedTime(string $rawScheduledTime, string $viewerTimezone): ?CarbonImmutable
-    {
-        $rawScheduledTime = trim($rawScheduledTime);
-        if ($rawScheduledTime === '') {
-            return null;
-        }
-
-        try {
-            if (preg_match('/(Z|[+\-]\d{2}:\d{2})$/', $rawScheduledTime)) {
-                return CarbonImmutable::parse($rawScheduledTime)->setTimezone('UTC');
-            }
-
-            foreach (['Y-m-d\\TH:i:s', 'Y-m-d\\TH:i'] as $format) {
-                try {
-                    return CarbonImmutable::createFromFormat($format, $rawScheduledTime, $viewerTimezone)->setTimezone('UTC');
-                } catch (\Throwable) {
-                    // Try next format.
-                }
-            }
-
-            return CarbonImmutable::parse($rawScheduledTime, $viewerTimezone)->setTimezone('UTC');
-        } catch (\Throwable) {
-            return null;
-        }
     }
 }

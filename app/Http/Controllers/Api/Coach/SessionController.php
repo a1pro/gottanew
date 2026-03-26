@@ -47,6 +47,8 @@ class SessionController extends BaseController
                     'client' => $session->client,
                     'video_detail' => $session->videoDetail,
                     'created_at' => optional($session->created_at)?->toISOString(),
+                    'is_intro_session' => (bool) $session->is_intro_session,
+                    'coach_notes' => $session->coach_notes,
                 ];
             });
 
