@@ -142,7 +142,7 @@ class DailyWebhookController extends Controller
         ]);
 
         if ($transcriptText) {
-            $this->sessionInsightService->generatePostSummary($session->fresh(['client', 'coach', 'recording']), true);
+            $this->sessionInsightService->generatePostSessionSummary($session->fresh(['client', 'coach', 'recording']), true);
         }
     }
 
