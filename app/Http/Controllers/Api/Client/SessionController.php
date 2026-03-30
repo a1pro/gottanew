@@ -312,11 +312,15 @@ class SessionController extends BaseController
     {
         $recording = $session->recording;
         $introRequest = $session->introRequest;
+        $normalizedStatus = $this->normalizeState((string) $session->status);
+        $viewerTimezone = $this->resolveViewerTimezone($session);
 
         $payload = [
             'id' => (int) $session->id,
-            'status' => $session->status,
+            'status' => $normalizedStatus,
+            'raw_status' => $session->status,
             'scheduled_time' => optional($session->scheduled_time)?->toISOString(),
+            'scheduled_time_local' => optional($session->scheduled_time)?->copy()->setTimezone($viewerTimezone)->toIso8601String(),
             'duration_minutes' => (int) ($session->duration_minutes ?? self::FIXED_DURATION_MINUTES),
             'price_amount' => $session->price_amount,
             'price_currency' => $session->price_currency,
@@ -325,6 +329,12 @@ class SessionController extends BaseController
             'coach_notes' => $session->coach_notes,
             'created_at' => optional($session->created_at)?->toISOString(),
             'updated_at' => optional($session->updated_at)?->toISOString(),
+            'timezone_context' => [
+                'display_timezone' => $viewerTimezone,
+                'viewer_timezone' => $viewerTimezone,
+                'coach_timezone' => Timezone::normalize($session->coach?->timezone, 'UTC'),
+                'scheduled_time_for_viewer' => optional($session->scheduled_time)?->copy()->setTimezone($viewerTimezone)->toIso8601String(),
+            ],
             'coach' => $session->coach ? [
                 'id' => (int) $session->coach->id,
                 'name' => $session->coach->name,
@@ -339,8 +349,11 @@ class SessionController extends BaseController
             ] : null,
             'recording' => $recording ? [
                 'transcription_status' => $recording->transcription_status,
+                'transcript' => $recording->transcript,
                 'transcript_available' => filled($recording->transcript),
                 'transcript_preview' => filled($recording->transcript) ? Str::limit((string) $recording->transcript, 220) : null,
+                'transcript_word_count' => str_word_count((string) $recording->transcript),
+                'summary_ready' => filled($recording->post_session_summary) || filled($recording->ai_summary) || filled($recording->pre_session_summary),
                 'ai_summary' => $recording->ai_summary,
                 'pre_session_summary' => $recording->pre_session_summary,
                 'post_session_summary' => $recording->post_session_summary,
@@ -373,8 +386,10 @@ class SessionController extends BaseController
         if ($includeStateLogs) {
             $payload['state_logs'] = $session->stateLogs->map(fn (SessionStateLog $log) => [
                 'id' => (int) $log->id,
-                'from_state' => $log->from_state,
-                'to_state' => $log->to_state,
+                'from_state' => $this->normalizeState($log->from_state),
+                'to_state' => $this->normalizeState($log->to_state),
+                'raw_from_state' => $log->from_state,
+                'raw_to_state' => $log->to_state,
                 'change_reason' => $log->change_reason,
                 'metadata' => $log->metadata,
                 'created_at' => optional($log->created_at)?->toISOString(),
@@ -382,6 +397,33 @@ class SessionController extends BaseController
         }
 
         return $payload;
+    }
+
+    private function resolveViewerTimezone(CoachingSession $session): string
+    {
+        if ($session->introRequest && filled($session->introRequest->viewer_timezone)) {
+            return Timezone::normalize((string) $session->introRequest->viewer_timezone, 'UTC');
+        }
+
+        $scheduledLog = $session->relationLoaded('stateLogs')
+            ? $session->stateLogs
+                ->sortByDesc(fn ($log) => optional($log->created_at)?->getTimestamp() ?? 0)
+                ->first(fn ($log) => $this->normalizeState((string) $log->to_state) === 'scheduled')
+            : $session->stateLogs()
+                ->where('to_state', 'scheduled')
+                ->orderByDesc('created_at')
+                ->first();
+
+        return Timezone::normalize(data_get($scheduledLog?->metadata ?? [], 'viewer_timezone'), 'UTC');
+    }
+
+    private function normalizeState(?string $state): string
+    {
+        return match (trim(strtolower((string) $state))) {
+            'in_progress' => 'live',
+            'cancelled', 'no_show' => 'failed',
+            default => trim(strtolower((string) $state)) ?: 'scheduled',
+        };
     }
 
     private function shouldSkipTokenChecks(): bool

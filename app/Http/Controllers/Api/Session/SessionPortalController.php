@@ -12,6 +12,7 @@ use App\Models\Session\SessionStateLog;
 use App\Models\Session\SessionVideoDetail;
 use App\Services\Communication\NotificationService;
 use App\Services\Video\DailyRestApiService;
+use App\Support\Timezone;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -41,6 +42,8 @@ class SessionPortalController extends BaseController
             'videoDetail',
             'recording',
             'participants',
+            'introRequest.preferredCoach:id,name,title,timezone',
+            'introRequest.assignedCoach:id,name,title,timezone',
             'stateLogs' => fn ($query) => $query->latest('created_at')->limit(10),
         ])->findOrFail($id);
 
@@ -58,14 +61,14 @@ class SessionPortalController extends BaseController
         $session = $this->getAuthorizedSession($request, $id);
         $this->expireInterruptedSessionIfNeeded($session, optional($request->user())->id, 'show');
 
-        return $this->success($this->presentSession($session->fresh(['coach', 'client', 'videoDetail', 'recording', 'participants', 'stateLogs']), $request->user()));
+        return $this->success($this->presentSession($session->fresh(['coach', 'client', 'videoDetail', 'recording', 'participants', 'stateLogs', 'introRequest.preferredCoach:id,name,title,timezone', 'introRequest.assignedCoach:id,name,title,timezone']), $request->user()));
     }
 
     public function join(Request $request, $id)
     {
         $session = $this->getAuthorizedSession($request, $id);
         $this->expireInterruptedSessionIfNeeded($session, optional($request->user())->id, 'join');
-        $session = $session->fresh(['coach', 'client', 'videoDetail', 'recording', 'participants', 'stateLogs']);
+        $session = $session->fresh(['coach', 'client', 'videoDetail', 'recording', 'participants', 'stateLogs', 'introRequest.preferredCoach:id,name,title,timezone', 'introRequest.assignedCoach:id,name,title,timezone']);
         $validation = $this->buildValidationSnapshot($session, $request->user());
 
         if (!$validation['can_join']) {
@@ -90,7 +93,7 @@ class SessionPortalController extends BaseController
         ]);
 
         return $this->success($this->buildJoinPayload(
-            $session->fresh(['coach', 'client', 'videoDetail', 'recording', 'participants', 'stateLogs']),
+            $session->fresh(['coach', 'client', 'videoDetail', 'recording', 'participants', 'stateLogs', 'introRequest.preferredCoach:id,name,title,timezone', 'introRequest.assignedCoach:id,name,title,timezone']),
             $request->user(),
             $participant
         ));
@@ -101,7 +104,7 @@ class SessionPortalController extends BaseController
         $session = $this->getAuthorizedSession($request, $id);
         $user = $request->user();
         $this->expireInterruptedSessionIfNeeded($session, optional($user)->id, 'reconnect');
-        $session = $session->fresh(['coach', 'client', 'videoDetail', 'recording', 'participants', 'stateLogs']);
+        $session = $session->fresh(['coach', 'client', 'videoDetail', 'recording', 'participants', 'stateLogs', 'introRequest.preferredCoach:id,name,title,timezone', 'introRequest.assignedCoach:id,name,title,timezone']);
 
         $validated = $request->validate([
             'force_refresh_room' => ['nullable', 'boolean'],
@@ -163,7 +166,7 @@ class SessionPortalController extends BaseController
 
             DB::commit();
 
-            $session = $session->fresh(['coach', 'client', 'videoDetail', 'recording', 'participants', 'stateLogs']);
+            $session = $session->fresh(['coach', 'client', 'videoDetail', 'recording', 'participants', 'stateLogs', 'introRequest.preferredCoach:id,name,title,timezone', 'introRequest.assignedCoach:id,name,title,timezone']);
 
             if ($fromState === 'interrupted') {
                 $this->notificationService->sessionStateChanged($session, $fromState, 'live', $user->id);
@@ -211,7 +214,7 @@ class SessionPortalController extends BaseController
                 ),
             ]);
 
-            return $this->success($this->presentSession($session->fresh(['coach', 'client', 'videoDetail', 'recording', 'participants', 'stateLogs']), $user), 'Session interruption refreshed');
+            return $this->success($this->presentSession($session->fresh(['coach', 'client', 'videoDetail', 'recording', 'participants', 'stateLogs', 'introRequest.preferredCoach:id,name,title,timezone', 'introRequest.assignedCoach:id,name,title,timezone']), $user), 'Session interruption refreshed');
         }
 
         DB::beginTransaction();
@@ -245,7 +248,7 @@ class SessionPortalController extends BaseController
 
             DB::commit();
 
-            $session = $session->fresh(['coach', 'client', 'videoDetail', 'recording', 'participants', 'stateLogs']);
+            $session = $session->fresh(['coach', 'client', 'videoDetail', 'recording', 'participants', 'stateLogs', 'introRequest.preferredCoach:id,name,title,timezone', 'introRequest.assignedCoach:id,name,title,timezone']);
             $this->notificationService->sessionStateChanged($session, $fromState, 'interrupted', $user->id);
 
             return $this->success($this->presentSession($session, $user), 'Session marked interrupted');
@@ -367,7 +370,7 @@ class SessionPortalController extends BaseController
                 $this->stopDailyCaptureIfNeeded($session->fresh(['videoDetail', 'recording']));
             }
 
-            $session = $session->fresh(['coach', 'client', 'videoDetail', 'recording', 'participants', 'stateLogs']);
+            $session = $session->fresh(['coach', 'client', 'videoDetail', 'recording', 'participants', 'stateLogs', 'introRequest.preferredCoach:id,name,title,timezone', 'introRequest.assignedCoach:id,name,title,timezone']);
 
             if ($fromState !== $session->status) {
                 $this->notificationService->sessionStateChanged($session, $fromState, $session->status, $user->id);
@@ -487,7 +490,7 @@ class SessionPortalController extends BaseController
 
         if ($fromState === $toState) {
             return $this->success(
-                $this->presentSession($session->fresh(['coach', 'client', 'videoDetail', 'recording', 'participants', 'stateLogs']), $request->user()),
+                $this->presentSession($session->fresh(['coach', 'client', 'videoDetail', 'recording', 'participants', 'stateLogs', 'introRequest.preferredCoach:id,name,title,timezone', 'introRequest.assignedCoach:id,name,title,timezone']), $request->user()),
                 'Session state unchanged'
             );
         }
@@ -550,7 +553,7 @@ class SessionPortalController extends BaseController
                 $this->stopDailyCaptureIfNeeded($session->fresh(['videoDetail', 'recording']));
             }
 
-            $session = $session->fresh(['coach', 'client', 'videoDetail', 'recording', 'participants', 'stateLogs']);
+            $session = $session->fresh(['coach', 'client', 'videoDetail', 'recording', 'participants', 'stateLogs', 'introRequest.preferredCoach:id,name,title,timezone', 'introRequest.assignedCoach:id,name,title,timezone']);
             $this->notificationService->sessionStateChanged($session, $fromState, $toState, optional($request->user())->id);
 
             return $this->success(
@@ -596,7 +599,7 @@ class SessionPortalController extends BaseController
         }
 
         return $this->success(
-            $this->presentSession($session->fresh(['coach', 'client', 'videoDetail', 'recording', 'participants', 'stateLogs']), $user),
+            $this->presentSession($session->fresh(['coach', 'client', 'videoDetail', 'recording', 'participants', 'stateLogs', 'introRequest.preferredCoach:id,name,title,timezone', 'introRequest.assignedCoach:id,name,title,timezone']), $user),
             'Session notes saved'
         );
     }
@@ -607,7 +610,7 @@ class SessionPortalController extends BaseController
 
         if ($session->status === 'completed') {
             return $this->success(
-                $this->presentSession($session->fresh(['coach', 'client', 'videoDetail', 'recording', 'participants', 'stateLogs']), $request->user()),
+                $this->presentSession($session->fresh(['coach', 'client', 'videoDetail', 'recording', 'participants', 'stateLogs', 'introRequest.preferredCoach:id,name,title,timezone', 'introRequest.assignedCoach:id,name,title,timezone']), $request->user()),
                 'Session already completed'
             );
         }
@@ -638,7 +641,7 @@ class SessionPortalController extends BaseController
 
             $this->stopDailyCaptureIfNeeded($session->fresh(['videoDetail', 'recording']));
 
-            $session = $session->fresh(['coach', 'client', 'videoDetail', 'recording', 'participants', 'stateLogs']);
+            $session = $session->fresh(['coach', 'client', 'videoDetail', 'recording', 'participants', 'stateLogs', 'introRequest.preferredCoach:id,name,title,timezone', 'introRequest.assignedCoach:id,name,title,timezone']);
             $this->notificationService->sessionStateChanged($session, $fromState, 'completed', optional($request->user())->id);
 
             return $this->success(
@@ -661,7 +664,7 @@ class SessionPortalController extends BaseController
         $session = $this->getAuthorizedSession($request, $id);
         $this->expireInterruptedSessionIfNeeded($session, optional($request->user())->id, 'validate');
 
-        return $this->success($this->buildValidationSnapshot($session->fresh(['coach', 'client', 'videoDetail', 'recording', 'participants', 'stateLogs']), $request->user()));
+        return $this->success($this->buildValidationSnapshot($session->fresh(['coach', 'client', 'videoDetail', 'recording', 'participants', 'stateLogs', 'introRequest.preferredCoach:id,name,title,timezone', 'introRequest.assignedCoach:id,name,title,timezone']), $request->user()));
     }
 
     public function saveFeedback(Request $request, $id)
@@ -720,7 +723,7 @@ class SessionPortalController extends BaseController
 
             DB::commit();
 
-            $session = $session->fresh(['coach', 'client', 'videoDetail', 'recording', 'participants', 'stateLogs']);
+            $session = $session->fresh(['coach', 'client', 'videoDetail', 'recording', 'participants', 'stateLogs', 'introRequest.preferredCoach:id,name,title,timezone', 'introRequest.assignedCoach:id,name,title,timezone']);
 
             if ($fromState !== $nextState) {
                 $this->notificationService->sessionStateChanged($session, $fromState, $nextState, $user->id);
@@ -789,7 +792,7 @@ class SessionPortalController extends BaseController
             );
         });
 
-        $refreshed = $session->fresh(['coach', 'client', 'videoDetail', 'recording', 'participants', 'stateLogs']);
+        $refreshed = $session->fresh(['coach', 'client', 'videoDetail', 'recording', 'participants', 'stateLogs', 'introRequest.preferredCoach:id,name,title,timezone', 'introRequest.assignedCoach:id,name,title,timezone']);
         if ($refreshed) {
             $this->stopDailyCaptureIfNeeded($refreshed->fresh(['videoDetail', 'recording']));
             $this->notificationService->sessionStateChanged($refreshed, 'interrupted', 'failed', $changedBy);
@@ -812,10 +815,32 @@ class SessionPortalController extends BaseController
             'videoDetail',
             'recording',
             'participants',
+            'introRequest.preferredCoach:id,name,title,timezone',
+            'introRequest.assignedCoach:id,name,title,timezone',
             'stateLogs' => fn ($query) => $query->latest('created_at')->limit(10),
         ]);
 
+        $displayTimezone = $this->resolvePresentationTimezone($fresh, $user);
         $payload = $fresh->toArray();
+        $payload['status'] = $this->normalizeState((string) $fresh->status);
+        $payload['raw_status'] = $fresh->status;
+        $payload['scheduled_time'] = optional($fresh->scheduled_time)?->toISOString();
+        $payload['scheduled_time_local'] = optional($fresh->scheduled_time)?->copy()->setTimezone($displayTimezone)->toIso8601String();
+        $payload['actual_started_at'] = optional($fresh->actual_started_at)?->toISOString();
+        $payload['actual_ended_at'] = optional($fresh->actual_ended_at)?->toISOString();
+        $payload['last_activity_at'] = optional($fresh->last_activity_at)?->toISOString();
+        $payload['last_interrupted_at'] = optional($fresh->last_interrupted_at)?->toISOString();
+        $payload['recovery_deadline_at'] = optional($fresh->recovery_deadline_at)?->toISOString();
+        $payload['timezone_context'] = [
+            'display_timezone' => $displayTimezone,
+            'viewer_timezone' => $displayTimezone,
+            'coach_timezone' => Timezone::normalize($fresh->coach?->timezone, 'UTC'),
+            'client_requested_timezone' => $this->resolveClientRequestedTimezone($fresh),
+            'scheduled_time_for_viewer' => optional($fresh->scheduled_time)?->copy()->setTimezone($displayTimezone)->toIso8601String(),
+        ];
+        $payload['recording'] = $this->serializeRecording($fresh->recording);
+        $payload['source_request'] = $this->serializeSourceRequest($fresh->introRequest);
+        $payload['intro_request'] = $payload['source_request'];
         $payload['join_validation'] = $this->buildValidationSnapshot($fresh, $user);
         $payload['recovery'] = [
             'recovery_attempts' => (int) ($fresh->recovery_attempts ?? 0),
@@ -857,6 +882,89 @@ class SessionPortalController extends BaseController
                 'is_intro_session' => (bool) ($session->is_intro_session ?? false),
                 'display_price' => $this->tokenCostForSession($session) === 0 ? 'Free' : $this->tokenCostForSession($session) . ' token',
             ],
+        ];
+    }
+
+    private function resolvePresentationTimezone(CoachingSession $session, $user): string
+    {
+        $role = $this->resolveRole($session, $user);
+
+        if ($role === 'coach') {
+            return Timezone::normalize($session->coach?->timezone, 'UTC');
+        }
+
+        if ($role === 'client') {
+            return $this->resolveClientRequestedTimezone($session);
+        }
+
+        return $this->resolveClientRequestedTimezone($session);
+    }
+
+    private function resolveClientRequestedTimezone(CoachingSession $session): string
+    {
+        if ($session->introRequest && filled($session->introRequest->viewer_timezone)) {
+            return Timezone::normalize((string) $session->introRequest->viewer_timezone, 'UTC');
+        }
+
+        $scheduledLog = $session->relationLoaded('stateLogs')
+            ? $session->stateLogs
+                ->sortByDesc(fn ($log) => optional($log->created_at)?->getTimestamp() ?? 0)
+                ->first(fn ($log) => $this->normalizeState((string) $log->to_state) === 'scheduled')
+            : $session->stateLogs()
+                ->where('to_state', 'scheduled')
+                ->orderByDesc('created_at')
+                ->first();
+
+        return Timezone::normalize(data_get($scheduledLog?->metadata ?? [], 'viewer_timezone'), 'UTC');
+    }
+
+    private function serializeSourceRequest($introRequest): ?array
+    {
+        if (!$introRequest) {
+            return null;
+        }
+
+        return [
+            'id' => (int) $introRequest->id,
+            'status' => $introRequest->status,
+            'goal_summary' => $introRequest->goal_summary,
+            'request_notes' => $introRequest->request_notes,
+            'admin_notes' => $introRequest->admin_notes,
+            'viewer_timezone' => $introRequest->viewer_timezone,
+            'preferred_coach' => $introRequest->preferredCoach ? [
+                'id' => (int) $introRequest->preferredCoach->id,
+                'name' => $introRequest->preferredCoach->name,
+                'title' => $introRequest->preferredCoach->title,
+            ] : null,
+            'assigned_coach' => $introRequest->assignedCoach ? [
+                'id' => (int) $introRequest->assignedCoach->id,
+                'name' => $introRequest->assignedCoach->name,
+                'title' => $introRequest->assignedCoach->title,
+            ] : null,
+        ];
+    }
+
+    private function serializeRecording(?SessionRecording $recording): ?array
+    {
+        if (!$recording) {
+            return null;
+        }
+
+        return [
+            'transcription_status' => $recording->transcription_status,
+            'transcript' => $recording->transcript,
+            'transcript_available' => filled($recording->transcript),
+            'transcript_preview' => filled($recording->transcript) ? Str::limit((string) $recording->transcript, 220) : null,
+            'transcript_word_count' => str_word_count((string) $recording->transcript),
+            'summary_ready' => filled($recording->post_session_summary) || filled($recording->ai_summary) || filled($recording->pre_session_summary),
+            'recording_url' => $recording->recording_url,
+            'ai_summary' => $recording->ai_summary,
+            'pre_session_summary' => $recording->pre_session_summary,
+            'post_session_summary' => $recording->post_session_summary,
+            'next_actions' => is_array($recording->next_actions) ? $recording->next_actions : [],
+            'key_topics' => is_array($recording->key_topics) ? $recording->key_topics : [],
+            'privacy_settings' => $recording->privacy_settings ?? [],
+            'feedback_rating' => $recording->feedback_rating,
         ];
     }
 
