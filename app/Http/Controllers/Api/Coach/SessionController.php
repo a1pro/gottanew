@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Coach;
 use App\Http\Controllers\Api\BaseController;
 use App\Models\Session\CoachingSession;
 use App\Models\Session\SessionStateLog;
+use App\Support\Timezone;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 
@@ -125,13 +126,24 @@ class SessionController extends BaseController
     {
         $recording = $session->recording;
         $introRequest = $session->introRequest;
+        $coachTimezone = Timezone::normalize($session->coach?->timezone, 'UTC');
+        $normalizedStatus = $this->normalizeState((string) $session->status);
 
         $payload = [
             'id' => (int) $session->id,
-            'status' => $session->status,
+            'status' => $normalizedStatus,
+            'raw_status' => $session->status,
             'scheduled_time' => optional($session->scheduled_time)?->toISOString(),
+            'scheduled_time_local' => optional($session->scheduled_time)?->copy()->setTimezone($coachTimezone)->toIso8601String(),
             'duration_minutes' => (int) ($session->duration_minutes ?? 15),
             'client_name' => optional($session->client)->name,
+            'timezone_context' => [
+                'display_timezone' => $coachTimezone,
+                'viewer_timezone' => $coachTimezone,
+                'coach_timezone' => $coachTimezone,
+                'client_requested_timezone' => $introRequest?->viewer_timezone,
+                'scheduled_time_for_viewer' => optional($session->scheduled_time)?->copy()->setTimezone($coachTimezone)->toIso8601String(),
+            ],
             'client' => $session->client ? [
                 'id' => (int) $session->client->id,
                 'name' => $session->client->name,
@@ -147,8 +159,11 @@ class SessionController extends BaseController
             'coach_notes' => $session->coach_notes,
             'recording' => $recording ? [
                 'transcription_status' => $recording->transcription_status,
+                'transcript' => $recording->transcript,
                 'transcript_available' => filled($recording->transcript),
                 'transcript_preview' => filled($recording->transcript) ? Str::limit((string) $recording->transcript, 220) : null,
+                'transcript_word_count' => str_word_count((string) $recording->transcript),
+                'summary_ready' => filled($recording->post_session_summary) || filled($recording->ai_summary) || filled($recording->pre_session_summary),
                 'ai_summary' => $recording->ai_summary,
                 'pre_session_summary' => $recording->pre_session_summary,
                 'post_session_summary' => $recording->post_session_summary,
@@ -180,8 +195,10 @@ class SessionController extends BaseController
         if ($includeStateLogs) {
             $payload['state_logs'] = $session->stateLogs->map(fn (SessionStateLog $log) => [
                 'id' => (int) $log->id,
-                'from_state' => $log->from_state,
-                'to_state' => $log->to_state,
+                'from_state' => $this->normalizeState($log->from_state),
+                'to_state' => $this->normalizeState($log->to_state),
+                'raw_from_state' => $log->from_state,
+                'raw_to_state' => $log->to_state,
                 'change_reason' => $log->change_reason,
                 'metadata' => $log->metadata,
                 'created_at' => optional($log->created_at)?->toISOString(),
@@ -189,5 +206,14 @@ class SessionController extends BaseController
         }
 
         return $payload;
+    }
+
+    private function normalizeState(?string $state): string
+    {
+        return match (trim(strtolower((string) $state))) {
+            'in_progress' => 'live',
+            'cancelled', 'no_show' => 'failed',
+            default => trim(strtolower((string) $state)) ?: 'scheduled',
+        };
     }
 }

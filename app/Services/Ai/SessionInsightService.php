@@ -25,8 +25,9 @@ class SessionInsightService
         );
     }
 
-    public function payload(CoachingSession $session): array
+    public function payload(CoachingSession $session, bool $includeCoachAssistant = false): array
     {
+        $session->loadMissing(['recording', 'messages', 'resources']);
         $recording = $this->ensureRecording($session)->fresh();
 
         return [
@@ -40,6 +41,7 @@ class SessionInsightService
             'transcription_status' => $recording->transcription_status,
             'pre_session_generated_at' => optional($recording->pre_session_generated_at)?->toISOString(),
             'post_session_generated_at' => optional($recording->post_session_generated_at)?->toISOString(),
+            'coach_assistant' => $includeCoachAssistant ? $this->buildCoachAssistantPayload($session, $recording) : null,
         ];
     }
 
@@ -176,6 +178,137 @@ class SessionInsightService
         ]);
 
         return $recording->fresh();
+    }
+
+    private function buildCoachAssistantPayload(CoachingSession $session, SessionRecording $recording): array
+    {
+        $session->loadMissing(['client', 'coach', 'messages', 'resources']);
+
+        $goals = UserGoal::query()
+            ->where('user_id', $session->client_id)
+            ->orderByRaw("CASE WHEN status = 'active' THEN 0 ELSE 1 END")
+            ->latest()
+            ->take(3)
+            ->get();
+
+        $focusGoal = $goals->first()?->title;
+        $transcript = $this->cleanText((string) $recording->transcript);
+        $coachNotes = $this->cleanText((string) $session->coach_notes);
+        $personalityInsights = collect($recording->personality_insights ?? [])->filter()->values()->all();
+        $keyTopics = collect($recording->key_topics ?? [])->filter()->values()->all();
+        $nextActions = collect($recording->next_actions ?? [])->filter()->values()->all();
+
+        $openingFocus = $focusGoal
+            ? "Anchor the session around {$focusGoal} and agree on one concrete outcome before advice-giving."
+            : 'Use the first two minutes to define what would make this short session successful for the client.';
+
+        if ($session->is_intro_session) {
+            $openingFocus = 'Treat this as an intro call: build trust quickly, confirm the main challenge, and end with a clear follow-up recommendation.';
+        }
+
+        $engagementSignals = [
+            [
+                'label' => 'Transcription',
+                'status' => in_array($recording->transcription_status, ['active', 'completed'], true) ? 'good' : 'watch',
+                'detail' => in_array($recording->transcription_status, ['active', 'completed'], true)
+                    ? 'Transcript context is available for live and post-session insights.'
+                    : 'Transcript is limited or off. Capture key commitments in coach notes.',
+            ],
+        ];
+
+        if ($transcript !== '') {
+            $engagementSignals[] = [
+                'label' => 'Conversation depth',
+                'status' => Str::length($transcript) >= 500 ? 'good' : 'info',
+                'detail' => Str::length($transcript) >= 500
+                    ? 'Enough conversation context is available for sharper follow-up questions.'
+                    : 'Transcript context is still short. Ask one more clarifying question before closing.',
+            ];
+        }
+
+        $engagementSignals[] = [
+            'label' => 'Coach notes',
+            'status' => Str::length($coachNotes) >= 60 ? 'good' : 'watch',
+            'detail' => Str::length($coachNotes) >= 60
+                ? 'Coach notes already capture useful context for the summary.'
+                : 'Add a brief summary and one commitment so the handoff stays clear after the call.',
+        ];
+
+        if (!empty($nextActions)) {
+            $engagementSignals[] = [
+                'label' => 'Next steps',
+                'status' => 'good',
+                'detail' => 'Action items are already present. Confirm ownership and timing before ending.',
+            ];
+        }
+
+        $messageCount = method_exists($session, 'messages') ? $session->messages->count() : 0;
+        $resourceCount = method_exists($session, 'resources') ? $session->resources->count() : 0;
+        $engagementSignals[] = [
+            'label' => 'Collaboration',
+            'status' => ($messageCount + $resourceCount) > 0 ? 'good' : 'info',
+            'detail' => ($messageCount + $resourceCount) > 0
+                ? 'The session already has messages or resources to support follow-through.'
+                : 'Share one short resource or written recap if the client needs structure after the call.',
+        ];
+
+        $suggestedQuestions = $this->buildSuggestedQuestions($focusGoal, $personalityInsights, $keyTopics, $session->is_intro_session);
+
+        $livePrompts = [
+            'Reflect the client’s last key phrase before you move into advice or planning.',
+            'Check confidence: ask what feels realistic in the next 7 days.',
+            $session->is_intro_session
+                ? 'End by confirming whether the client wants another session and what it should focus on.'
+                : 'End by naming the single most important next step and who owns it.',
+        ];
+
+        return [
+            'opening_focus' => $openingFocus,
+            'suggested_questions' => $suggestedQuestions,
+            'engagement_signals' => $engagementSignals,
+            'live_prompts' => $livePrompts,
+            'transcript_preview' => $transcript !== '' ? $this->truncate($transcript, 420) : null,
+            'recommended_close' => !empty($nextActions)
+                ? 'Recap the agreed actions out loud and confirm which one the client will do first.'
+                : 'Before ending, ask the client to choose one concrete action and when they will do it.',
+        ];
+    }
+
+    private function buildSuggestedQuestions(?string $focusGoal, array $personalityInsights, array $keyTopics, bool $isIntroSession): array
+    {
+        $questions = [];
+
+        $questions[] = $focusGoal
+            ? "What would progress on {$focusGoal} look like by next week?"
+            : 'What would make this session feel useful by the time we end today?';
+
+        if (!empty($personalityInsights)) {
+            $signal = $this->cleanText((string) $personalityInsights[0]);
+            $questions[] = 'I noticed a signal from your questionnaire that may matter here — what feels most true for you right now?';
+            if ($signal !== '') {
+                $questions[] = 'Which part of this feels hardest in real life, not just in theory?';
+            }
+        } else {
+            $questions[] = 'What is getting in the way most often when you try to act on this?';
+        }
+
+        if (!empty($keyTopics)) {
+            $topic = $this->cleanText((string) $keyTopics[0]);
+            $questions[] = $topic !== ''
+                ? "How is {$topic} affecting your decisions or energy right now?"
+                : 'What part of this situation is taking the most energy right now?';
+        }
+
+        $questions[] = $isIntroSession
+            ? 'Would you like the next session to go deeper into strategy, mindset, or accountability?'
+            : 'What is the smallest next step you are ready to commit to before the next session?';
+
+        return collect($questions)
+            ->filter(fn ($item) => is_string($item) && trim($item) !== '')
+            ->unique()
+            ->values()
+            ->take(5)
+            ->all();
     }
 
     private function buildSummaryLead(string $text, Collection $goals): string

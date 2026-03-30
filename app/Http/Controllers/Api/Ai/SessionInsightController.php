@@ -18,7 +18,7 @@ class SessionInsightController extends BaseController
         $session = $this->getAuthorizedSession($request, $id);
 
         return $this->success(
-            $this->insightService->payload($session)
+            $this->insightService->payload($session, $this->canViewCoachAssistant($request, $session))
         );
     }
 
@@ -29,7 +29,7 @@ class SessionInsightController extends BaseController
         $this->insightService->generatePreSessionSummary($session, true);
 
         return $this->success(
-            $this->insightService->payload($session),
+            $this->insightService->payload($session, $this->canViewCoachAssistant($request, $session)),
             'Pre-session summary generated'
         );
     }
@@ -41,7 +41,7 @@ class SessionInsightController extends BaseController
         $this->insightService->generatePostSessionSummary($session, true);
 
         return $this->success(
-            $this->insightService->payload($session),
+            $this->insightService->payload($session, $this->canViewCoachAssistant($request, $session)),
             'Post-session summary generated'
         );
     }
@@ -60,5 +60,19 @@ class SessionInsightController extends BaseController
         abort_unless($isClient || $isCoach || $isAdmin, 403, 'Unauthorized');
 
         return $session;
+    }
+
+    private function canViewCoachAssistant(Request $request, CoachingSession $session): bool
+    {
+        $user = $request->user();
+
+        if (!$user) {
+            return false;
+        }
+
+        $isCoach = (int) optional($session->coach)->user_id === (int) $user->id;
+        $isAdmin = method_exists($user, 'isAdmin') ? $user->isAdmin() : false;
+
+        return $isCoach || $isAdmin;
     }
 }

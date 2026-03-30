@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\Coach\AvailabilityController;
 use App\Http\Controllers\Api\Coach\PackageController;
 use App\Http\Controllers\Api\Coach\CoachMatchController;
 use App\Http\Controllers\Api\Coach\SessionController;
+use App\Http\Controllers\Api\Coach\EarningsController;
 
 Route::prefix('coach')->group(function () {
     Route::get('/coaches', [CoachController::class, 'index']);
@@ -30,6 +31,7 @@ Route::prefix('coach')->middleware('auth:sanctum')->group(function () {
     Route::put('/availability/{id}', [AvailabilityController::class, 'update']);
     Route::delete('/availability/{id}', [AvailabilityController::class, 'destroy']);
 
+    Route::get('/earnings', [EarningsController::class, 'index']);
     Route::get('/sessions', [SessionController::class, 'index']);
     Route::get('/sessions/{id}', [SessionController::class, 'show']);
     Route::put('/sessions/{id}/notes', [SessionController::class, 'saveNotes']);
