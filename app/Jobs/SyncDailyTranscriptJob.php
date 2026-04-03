@@ -61,10 +61,6 @@ class SyncDailyTranscriptJob implements ShouldQueue
             ? trim($recording->daily_transcript_id)
             : '';
 
-        if ($transcriptId === '') {
-            return;
-        }
-
         $lockKey = 'daily:transcript-sync:' . $recording->id;
         $lock = Cache::lock($lockKey, 90);
 
@@ -83,10 +79,31 @@ class SyncDailyTranscriptJob implements ShouldQueue
             $fallbackLink = Arr::first([
                 $transcriptMetadata['access_link'] ?? null,
                 $transcriptMetadata['download_link'] ?? null,
+                $transcriptMetadata['link'] ?? null,
+                data_get($transcriptMetadata, 'out_params.access_link'),
+                data_get($transcriptMetadata, 'out_params.download_link'),
+                data_get($transcriptMetadata, 'out_params.link'),
             ], static fn ($value) => is_string($value) && trim($value) !== '');
 
+            if ($transcriptId === '' && !is_string($fallbackLink)) {
+                $recording->update([
+                    'provider_metadata' => array_replace_recursive(
+                        is_array($recording->provider_metadata) ? $recording->provider_metadata : [],
+                        [
+                            'daily' => [
+                                'transcript' => [
+                                    'last_sync_attempt_at' => now()->toISOString(),
+                                    'last_sync_attempt_status' => 'missing_identifier_and_link',
+                                ],
+                            ],
+                        ]
+                    ),
+                ]);
+                return;
+            }
+
             $text = $dailyService->resolveTranscriptText(
-                $transcriptId,
+                $transcriptId !== '' ? $transcriptId : null,
                 is_string($fallbackLink) ? $fallbackLink : null
             );
 

@@ -496,6 +496,10 @@ class SessionPortalController extends BaseController
             Arr::first([
                 $transcriptMetadata['access_link'] ?? null,
                 $transcriptMetadata['download_link'] ?? null,
+                $transcriptMetadata['link'] ?? null,
+                data_get($transcriptMetadata, 'out_params.access_link'),
+                data_get($transcriptMetadata, 'out_params.download_link'),
+                data_get($transcriptMetadata, 'out_params.link'),
             ], static fn ($value) => is_string($value) && trim($value) !== '')
         );
 
@@ -1456,15 +1460,27 @@ private function canManualRecover(CoachingSession $session, $user): bool
                 ]
             );
 
+            $transcriptLink = $this->extractDailyTranscriptLinkFromPayload($response);
+
             $recording->update([
                 'provider_name' => 'daily',
-                'daily_transcript_id' => $response['id'] ?? $recording->daily_transcript_id,
+                'daily_transcript_id' => $this->extractDailyTranscriptIdFromResponse($response) ?? $recording->daily_transcript_id,
                 'daily_transcript_instance_id' => data_get($response, 'info.instanceId')
+                    ?? data_get($response, 'info.instance_id')
+                    ?? data_get($response, 'transcript.instanceId')
+                    ?? data_get($response, 'transcript.instance_id')
                     ?? $response['instanceId']
                     ?? $response['instance_id']
                     ?? $recording->daily_transcript_instance_id,
                 'transcription_status' => 'active',
-                'provider_metadata' => $providerMetadata,
+                'provider_metadata' => array_replace_recursive($providerMetadata, [
+                    'daily' => [
+                        'transcript' => [
+                            'access_link' => $transcriptLink,
+                            'download_link' => $transcriptLink,
+                        ],
+                    ],
+                ]),
             ]);
         } catch (\Throwable $e) {
             if ($this->isDailyAlreadyActiveStreamError($e)) {
@@ -1767,6 +1783,48 @@ private function canManageCapture(CoachingSession $session, $user): bool
     {
         return max(0, (int) round((float) ($session->price_amount ?? 1)));
     }
+
+
+private function extractDailyTranscriptIdFromResponse(array $payload): ?string
+{
+    foreach ([
+        $payload['id'] ?? null,
+        $payload['transcript_id'] ?? null,
+        $payload['transcriptId'] ?? null,
+        data_get($payload, 'transcript.id'),
+        data_get($payload, 'transcript.transcript_id'),
+        data_get($payload, 'transcript.transcriptId'),
+        data_get($payload, 'info.id'),
+    ] as $value) {
+        if (is_string($value) && trim($value) !== '') {
+            return trim($value);
+        }
+    }
+
+    return null;
+}
+
+private function extractDailyTranscriptLinkFromPayload(array $payload): ?string
+{
+    foreach ([
+        $payload['access_link'] ?? null,
+        $payload['download_link'] ?? null,
+        $payload['link'] ?? null,
+        $payload['url'] ?? null,
+        data_get($payload, 'out_params.access_link'),
+        data_get($payload, 'out_params.download_link'),
+        data_get($payload, 'out_params.link'),
+        data_get($payload, 'transcript.access_link'),
+        data_get($payload, 'transcript.download_link'),
+        data_get($payload, 'transcript.link'),
+    ] as $value) {
+        if (is_string($value) && trim($value) !== '') {
+            return trim($value);
+        }
+    }
+
+    return null;
+}
 
     private function isDailyAlreadyActiveStreamError(\Throwable $e): bool
     {

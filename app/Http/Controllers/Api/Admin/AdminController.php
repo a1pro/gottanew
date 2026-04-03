@@ -395,6 +395,10 @@ class AdminController extends BaseController
             Arr::first([
                 $transcriptMetadata['access_link'] ?? null,
                 $transcriptMetadata['download_link'] ?? null,
+                $transcriptMetadata['link'] ?? null,
+                data_get($transcriptMetadata, 'out_params.access_link'),
+                data_get($transcriptMetadata, 'out_params.download_link'),
+                data_get($transcriptMetadata, 'out_params.link'),
             ], static fn ($value) => is_string($value) && trim($value) !== '')
         );
 

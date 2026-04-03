@@ -220,6 +220,8 @@ class DailyWebhookController extends Controller
         $transcriptId = $this->extractTranscriptId($payload);
         $transcriptInstanceId = $this->extractInstanceId($payload);
 
+        $transcriptLink = $this->extractTranscriptAccessLink($payload);
+
         $recording->update([
             'provider_name' => 'daily',
             'daily_transcript_id' => $transcriptId ?: $recording->daily_transcript_id,
@@ -231,6 +233,8 @@ class DailyWebhookController extends Controller
                     'transcript' => [
                         'status' => 'ready_to_download',
                         'ready_at' => now()->toISOString(),
+                        'access_link' => $transcriptLink,
+                        'download_link' => $transcriptLink,
                         'out_params' => $payload['out_params'] ?? null,
                         'event_payload' => Arr::only($payload, [
                             'id',
@@ -311,8 +315,16 @@ class DailyWebhookController extends Controller
     {
         $recordingId = (string) ($payload['recording_id'] ?? $payload['recordingId'] ?? $recording->daily_recording_id ?? '');
         $recordingInstanceId = $this->extractInstanceId($payload);
-        $accessLinkResponse = $recordingId !== '' ? $this->dailyService->getRecordingAccessLink($recordingId) : [];
-        $downloadLink = $accessLinkResponse['download_link'] ?? $accessLinkResponse['link'] ?? null;
+
+        try {
+            $accessLinkResponse = $recordingId !== '' ? $this->dailyService->getRecordingAccessLink($recordingId) : [];
+        } catch (\Throwable) {
+            $accessLinkResponse = [];
+        }
+
+        $downloadLink = $accessLinkResponse['download_link']
+            ?? $accessLinkResponse['link']
+            ?? $this->extractRecordingAccessLink($payload);
 
         $recording->update([
             'provider_name' => 'daily',
@@ -366,11 +378,21 @@ class DailyWebhookController extends Controller
     }
 
     private function extractPayload(array $event): array
-    {
-        $payload = $event['payload'] ?? null;
+{
+    $payload = $event['payload'] ?? null;
 
-        return is_array($payload) ? $payload : $event;
+    if (!is_array($payload)) {
+        return $event;
     }
+
+    foreach (['id', 'type', 'room_name', 'room_id', 'instance_id', 'instanceId', 'mtg_session_id'] as $key) {
+        if (!array_key_exists($key, $payload) && array_key_exists($key, $event)) {
+            $payload[$key] = $event[$key];
+        }
+    }
+
+    return $payload;
+}
 
     private function ensureRecording(CoachingSession $session): SessionRecording
     {
@@ -396,16 +418,87 @@ class DailyWebhookController extends Controller
     }
 
     private function extractInstanceId(array $payload): ?string
-    {
-        $value = $payload['instance_id'] ?? $payload['instanceId'] ?? null;
-
-        return is_string($value) && trim($value) !== '' ? trim($value) : null;
+{
+    foreach ([
+        $payload['instance_id'] ?? null,
+        $payload['instanceId'] ?? null,
+        data_get($payload, 'transcript.instance_id'),
+        data_get($payload, 'transcript.instanceId'),
+        data_get($payload, 'recording.instance_id'),
+        data_get($payload, 'recording.instanceId'),
+        data_get($payload, 'info.instance_id'),
+        data_get($payload, 'info.instanceId'),
+    ] as $value) {
+        if (is_string($value) && trim($value) !== '') {
+            return trim($value);
+        }
     }
 
-    private function extractTranscriptId(array $payload): ?string
-    {
-        $value = $payload['id'] ?? null;
+    return null;
+}
 
-        return is_string($value) && trim($value) !== '' ? trim($value) : null;
+private function extractTranscriptId(array $payload): ?string
+{
+    foreach ([
+        $payload['id'] ?? null,
+        $payload['transcript_id'] ?? null,
+        $payload['transcriptId'] ?? null,
+        data_get($payload, 'transcript.id'),
+        data_get($payload, 'transcript.transcript_id'),
+        data_get($payload, 'transcript.transcriptId'),
+        data_get($payload, 'data.id'),
+        data_get($payload, 'info.id'),
+    ] as $value) {
+        if (is_string($value) && trim($value) !== '') {
+            return trim($value);
+        }
     }
+
+    return null;
+}
+
+private function extractTranscriptAccessLink(array $payload): ?string
+{
+    foreach ([
+        $payload['access_link'] ?? null,
+        $payload['download_link'] ?? null,
+        $payload['link'] ?? null,
+        $payload['url'] ?? null,
+        data_get($payload, 'out_params.access_link'),
+        data_get($payload, 'out_params.download_link'),
+        data_get($payload, 'out_params.link'),
+        data_get($payload, 'transcript.access_link'),
+        data_get($payload, 'transcript.download_link'),
+        data_get($payload, 'transcript.link'),
+        data_get($payload, 'download.link'),
+    ] as $value) {
+        if (is_string($value) && trim($value) !== '') {
+            return trim($value);
+        }
+    }
+
+    return null;
+}
+
+private function extractRecordingAccessLink(array $payload): ?string
+{
+    foreach ([
+        $payload['access_link'] ?? null,
+        $payload['download_link'] ?? null,
+        $payload['link'] ?? null,
+        $payload['url'] ?? null,
+        data_get($payload, 'recording.access_link'),
+        data_get($payload, 'recording.download_link'),
+        data_get($payload, 'recording.link'),
+        data_get($payload, 'out_params.access_link'),
+        data_get($payload, 'out_params.download_link'),
+        data_get($payload, 'out_params.link'),
+    ] as $value) {
+        if (is_string($value) && trim($value) !== '') {
+            return trim($value);
+        }
+    }
+
+    return null;
+}
 }
