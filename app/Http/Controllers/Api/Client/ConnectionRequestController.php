@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Client;
 
 use App\Http\Controllers\Api\BaseController;
+use App\Rules\TimezoneIdentifier;
 use App\Models\Coach\Coach;
 use App\Models\Session\SessionRequest;
 use App\Services\Communication\NotificationService;
@@ -16,116 +17,122 @@ class ConnectionRequestController extends BaseController
     ) {
     }
 
-    public function index(Request $request)
-    {
-        $user = $request->user();
+     public function index(Request $request)
+     {
+         $user = $request->user();
 
-        if (!$user) {
-            return $this->error('Unauthenticated', 401);
-        }
+           if (!$user) {
+               return $this->error('Unauthenticated', 401);
+           }
 
-        $query = SessionRequest::query()
-            ->with([
-                'preferredCoach:id,name,title,timezone',
-                'assignedCoach:id,name,title,timezone',
-                'approvedSession:id,status,scheduled_time,duration_minutes',
-            ])
-            ->where('client_id', $user->id)
-            ->latest();
+           $query = SessionRequest::query()
+               ->with([
+                   'preferredCoach:id,name,title,timezone',
+                   'assignedCoach:id,name,title,timezone',
+                   'approvedSession:id,status,scheduled_time,duration_minutes',
+               ])
+               ->where('client_id', $user->id)
+               ->latest();
 
-        $summary = [
-            'total' => (clone $query)->count(),
-            'pending' => (clone $query)->where('status', 'pending')->count(),
-            'approved' => (clone $query)->where('status', 'approved')->count(),
-            'rejected' => (clone $query)->where('status', 'rejected')->count(),
-        ];
+           $summary = [
+               'total' => (clone $query)->count(),
+               'pending' => (clone $query)->where('status', 'pending')->count(),
+               'approved' => (clone $query)->where('status', 'approved')->count(),
 
-        $requests = $query->paginate((int) $request->get('per_page', 10));
+           'rejected' => (clone $query)->where('status', 'rejected')->count(),
+      ];
 
-        $requests->setCollection(
-            $requests->getCollection()->map(fn (SessionRequest $sessionRequest) => $this->serializeRequest($sessionRequest))
-        );
+      $requests = $query->paginate((int) $request->get('per_page', 10));
 
-        return $this->success([
-            'data' => $requests,
-            'summary' => $summary,
-        ]);
-    }
+      $requests->setCollection(
+          $requests->getCollection()->map(fn (SessionRequest $sessionRequest)
+=> $this->serializeRequest($sessionRequest))
+      );
 
-    public function store(Request $request)
-    {
-        $user = $request->user();
+      return $this->success([
+          'data' => $requests,
+          'summary' => $summary,
+      ]);
+  }
 
-        if (!$user) {
-            return $this->error('Unauthenticated', 401);
-        }
+  public function store(Request $request)
+  {
+      $user = $request->user();
 
-        $validated = $request->validate([
-            'preferred_coach_id' => ['nullable', 'exists:coaches,id'],
-            'goal_summary' => ['nullable', 'string', 'max:255'],
-            'request_notes' => ['nullable', 'string', 'max:3000'],
-            'viewer_timezone' => ['nullable', 'string', 'max:100'],
-        ]);
+      if (!$user) {
+          return $this->error('Unauthenticated', 401);
+      }
 
-        $openRequestExists = SessionRequest::query()
-            ->where('client_id', $user->id)
-            ->where('status', 'pending')
-            ->exists();
+      $validated = $request->validate([
+          'preferred_coach_id' => ['nullable', 'exists:coaches,id'],
+          'goal_summary' => ['nullable', 'string', 'max:255'],
+          'request_notes' => ['nullable', 'string', 'max:3000'],
+          'viewer_timezone' => ['nullable', 'string', 'max:100', new
+TimezoneIdentifier()],
+      ]);
 
-        if ($openRequestExists) {
-            return $this->error('You already have a pending free intro request.', 422);
-        }
+      $openRequestExists = SessionRequest::query()
+          ->where('client_id', $user->id)
+          ->where('status', 'pending')
+          ->exists();
 
-        $preferredCoach = null;
-        if (!empty($validated['preferred_coach_id'])) {
-            $preferredCoach = Coach::query()->findOrFail($validated['preferred_coach_id']);
-        }
+      if ($openRequestExists) {
+          return $this->error('You already have a pending free intro
+request.', 422);
+      }
 
-        $sessionRequest = SessionRequest::create([
-            'client_id' => $user->id,
-            'preferred_coach_id' => $preferredCoach?->id,
-            'status' => 'pending',
-            'goal_summary' => $validated['goal_summary'] ?? null,
-            'request_notes' => $validated['request_notes'] ?? null,
-            'viewer_timezone' => Timezone::normalize($validated['viewer_timezone'] ?? 'UTC', 'UTC'),
-        ]);
+      $preferredCoach = null;
+      if (!empty($validated['preferred_coach_id'])) {
+          $preferredCoach = Coach::query()->findOrFail($validated['preferred_coach_id']);
+      }
 
-        $this->notificationService->sessionRequestSubmitted($sessionRequest->load(['client', 'preferredCoach']));
+      $sessionRequest = SessionRequest::create([
+          'client_id' => $user->id,
+          'preferred_coach_id' => $preferredCoach?->id,
+          'status' => 'pending',
+          'goal_summary' => $validated['goal_summary'] ?? null,
+          'request_notes' => $validated['request_notes'] ?? null,
+          'viewer_timezone' =>
+Timezone::normalize($validated['viewer_timezone'] ?? 'UTC', 'UTC'),
+      ]);
 
-        return $this->success(
-            $this->serializeRequest($sessionRequest->load(['preferredCoach', 'assignedCoach', 'approvedSession'])),
-            'Free intro request submitted successfully.',
-            201
-        );
-    }
+      $this->notificationService->sessionRequestSubmitted($sessionRequest->load(['client', 'preferredCoach']));
 
-    private function serializeRequest(SessionRequest $sessionRequest): array
-    {
-        return [
-            'id' => (int) $sessionRequest->id,
-            'status' => $sessionRequest->status,
-            'goal_summary' => $sessionRequest->goal_summary,
-            'request_notes' => $sessionRequest->request_notes,
-            'admin_notes' => $sessionRequest->admin_notes,
-            'viewer_timezone' => $sessionRequest->viewer_timezone,
-            'scheduled_time' => optional($sessionRequest->scheduled_time)?->toISOString(),
-            'created_at' => optional($sessionRequest->created_at)?->toISOString(),
-            'reviewed_at' => optional($sessionRequest->reviewed_at)?->toISOString(),
-            'approved_at' => optional($sessionRequest->approved_at)?->toISOString(),
-            'rejected_at' => optional($sessionRequest->rejected_at)?->toISOString(),
-            'preferred_coach' => $sessionRequest->preferredCoach ? [
-                'id' => (int) $sessionRequest->preferredCoach->id,
-                'name' => $sessionRequest->preferredCoach->name,
-                'title' => $sessionRequest->preferredCoach->title,
-                'timezone' => $sessionRequest->preferredCoach->timezone,
-            ] : null,
-            'assigned_coach' => $sessionRequest->assignedCoach ? [
-                'id' => (int) $sessionRequest->assignedCoach->id,
-                'name' => $sessionRequest->assignedCoach->name,
-                'title' => $sessionRequest->assignedCoach->title,
-                'timezone' => $sessionRequest->assignedCoach->timezone,
-            ] : null,
-            'approved_session' => $sessionRequest->approvedSession ? [
+      return $this->success(
+          $this->serializeRequest($sessionRequest->load(['preferredCoach',
+'assignedCoach', 'approvedSession'])),
+          'Free intro request submitted successfully.',
+      );
+  }
+
+  private function serializeRequest(SessionRequest $sessionRequest): array
+  {
+      return [
+          'id' => (int) $sessionRequest->id,
+          'status' => $sessionRequest->status,
+          'goal_summary' => $sessionRequest->goal_summary,
+          'request_notes' => $sessionRequest->request_notes,
+          'admin_notes' => $sessionRequest->admin_notes,
+          'viewer_timezone' => $sessionRequest->viewer_timezone,
+          'scheduled_time' => optional($sessionRequest->scheduled_time)?->toISOString(),
+          'created_at' => optional($sessionRequest->created_at)?->toISOString(),
+          'reviewed_at' => optional($sessionRequest->reviewed_at)?->toISOString(),
+          'approved_at' => optional($sessionRequest->approved_at)?->toISOString(),
+          'rejected_at' => optional($sessionRequest->rejected_at)?->toISOString(),
+          'preferred_coach' => $sessionRequest->preferredCoach ? [
+              'id' => (int) $sessionRequest->preferredCoach->id,
+              'name' => $sessionRequest->preferredCoach->name,
+              'title' => $sessionRequest->preferredCoach->title,
+              'timezone' => $sessionRequest->preferredCoach->timezone,
+          ] : null,
+          'assigned_coach' => $sessionRequest->assignedCoach ? [
+              'id' => (int) $sessionRequest->assignedCoach->id,
+
+                      'name' => $sessionRequest->assignedCoach->name,
+                      'title' => $sessionRequest->assignedCoach->title,
+                      'timezone' => $sessionRequest->assignedCoach->timezone,
+                  ] : null,
+                  'approved_session' => $sessionRequest->approvedSession ? [
                 'id' => (int) $sessionRequest->approvedSession->id,
                 'status' => $sessionRequest->approvedSession->status,
                 'scheduled_time' => optional($sessionRequest->approvedSession->scheduled_time)?->toISOString(),

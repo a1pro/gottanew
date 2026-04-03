@@ -1,7 +1,6 @@
 <?php
 
 return [
-
     /*
     |--------------------------------------------------------------------------
     | Third Party Services
@@ -34,14 +33,29 @@ return [
             'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),
         ],
     ],
+
     'daily' => [
         'api_key' => env('DAILY_API_KEY'),
         'transcription_language' => env('DAILY_TRANSCRIPTION_LANGUAGE', 'en'),
         'transcription_model' => env('DAILY_TRANSCRIPTION_MODEL'),
+        /**
+         * Daily webhooks:
+         * - Daily provides X-Webhook-Signature + X-Webhook-Timestamp headers.
+         * - The hmac shared secret must be BASE64-encoded.
+         * - See Daily docs: https://docs.daily.co/reference/rest-api/webhooks
+         */
         'webhook_hmac' => env('DAILY_WEBHOOK_HMAC'),
         'webhook_max_age_seconds' => (int) env('DAILY_WEBHOOK_MAX_AGE_SECONDS', 300),
+        'webhook_url' => env('DAILY_WEBHOOK_URL'),
+        'webhook_retry_type' => env('DAILY_WEBHOOK_RETRY_TYPE', 'circuit-breaker'),
+        /**
+         * Transcription storage:
+         * Daily defaults enable_transcription_storage=false unless explicitly enabled.
+         * When enabled, Daily stores a WebVTT file and makes it downloadable via the REST API.
+         */
+        'enable_transcription_storage' =>
+            filter_var(env('DAILY_ENABLE_TRANSCRIPTION_STORAGE', true), FILTER_VALIDATE_BOOL),
     ],
-
 
     'twilio' => [
         'account_sid' => env('TWILIO_ACCOUNT_SID'),
@@ -52,7 +66,8 @@ return [
         'sms_from' => env('TWILIO_SMS_FROM'),
         'whatsapp_from' => env('TWILIO_WHATSAPP_FROM'),
         'status_callback_url' => env('TWILIO_STATUS_CALLBACK_URL'),
-        'use_sms_fallback_for_whatsapp' => filter_var(env('TWILIO_USE_SMS_FALLBACK_FOR_WHATSAPP', true), FILTER_VALIDATE_BOOL),
+        'use_sms_fallback_for_whatsapp' =>
+            filter_var(env('TWILIO_USE_SMS_FALLBACK_FOR_WHATSAPP', true), FILTER_VALIDATE_BOOL),
     ],
 
     'stripe' => [
@@ -64,5 +79,4 @@ return [
     'frontend' => [
         'url' => env('FRONTEND_URL', env('APP_URL', 'http://localhost:8080')),
     ],
-
 ];

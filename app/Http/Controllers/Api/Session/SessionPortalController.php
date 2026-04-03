@@ -13,8 +13,10 @@ use App\Models\Session\SessionVideoDetail;
 use App\Services\Communication\NotificationService;
 use App\Services\Video\DailyRestApiService;
 use App\Support\Timezone;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -92,11 +94,17 @@ class SessionPortalController extends BaseController
             'last_activity_at' => now(),
         ]);
 
-        return $this->success($this->buildJoinPayload(
+        $joinPayload = $this->buildJoinPayload(
             $session->fresh(['coach', 'client', 'videoDetail', 'recording', 'participants', 'stateLogs', 'introRequest.preferredCoach:id,name,title,timezone', 'introRequest.assignedCoach:id,name,title,timezone']),
             $request->user(),
             $participant
-        ));
+        );
+
+        if ($secureJoinError = $this->ensureSecureJoinPayload($joinPayload)) {
+            return $secureJoinError;
+        }
+
+        return $this->success($joinPayload);
     }
 
     public function reconnect(Request $request, $id)
@@ -172,9 +180,16 @@ class SessionPortalController extends BaseController
                 $this->notificationService->sessionStateChanged($session, $fromState, 'live', $user->id);
             }
 
+            $joinPayload = $this->buildJoinPayload($session, $user, $participant);
+
+            if ($secureJoinError = $this->ensureSecureJoinPayload($joinPayload)) {
+                DB::rollBack();
+                return $secureJoinError;
+            }
+
             return $this->success([
                 'session' => $this->presentSession($session, $user),
-                'join' => $this->buildJoinPayload($session, $user, $participant),
+                'join' => $joinPayload,
                 'validation' => $this->buildValidationSnapshot($session, $user),
             ], 'Session reconnect ready');
         } catch (\Throwable $e) {
@@ -376,9 +391,15 @@ class SessionPortalController extends BaseController
                 $this->notificationService->sessionStateChanged($session, $fromState, $session->status, $user->id);
             }
 
+            $joinPayload = $this->buildJoinPayload($session, $user);
+
+            if ($secureJoinError = $this->ensureSecureJoinPayload($joinPayload)) {
+                return $secureJoinError;
+            }
+
             return $this->success([
                 'session' => $this->presentSession($session, $user),
-                'join' => $this->buildJoinPayload($session, $user),
+                'join' => $joinPayload,
                 'validation' => $this->buildValidationSnapshot($session, $user),
             ], $message);
         } catch (\Throwable $e) {
@@ -434,6 +455,100 @@ class SessionPortalController extends BaseController
             $recording->fresh(),
             'Session consent saved'
         );
+    }
+
+    public function syncDailyAssets(Request $request, $id)
+    {
+        $session = $this->getAuthorizedSession($request, $id);
+        $recording = $session->recording ?: $this->ensureSessionRecording($session);
+
+        $validated = $request->validate([
+            'start_capture' => ['nullable', 'boolean'],
+            'force_capture_restart' => ['nullable', 'boolean'],
+            'generate_ai_summary' => ['nullable', 'boolean'],
+        ]);
+
+        if ($this->dailyService->usingFakeRoom()) {
+            return $this->error('Daily sync is unavailable while fake Daily rooms are enabled.', 422);
+        }
+
+        if (!$this->dailyService->isConfigured()) {
+            return $this->error('Daily is not configured on this environment.', 422);
+        }
+
+        $captureStarted = [
+            'recording' => false,
+            'transcription' => false,
+        ];
+
+        if (($validated['start_capture'] ?? false) && $this->canManageCapture($session, $request->user())) {
+            $captureStarted = $this->startDailyCaptureIfNeeded($session->fresh(['videoDetail', 'recording']), (bool) ($validated['force_capture_restart'] ?? false));
+            $recording = $session->fresh(['recording'])->recording ?: $recording->fresh();
+        }
+
+        $provider = is_array($recording->provider_metadata) ? $recording->provider_metadata : [];
+        $dailyMetadata = is_array($provider['daily'] ?? null) ? $provider['daily'] : [];
+        $transcriptMetadata = is_array($dailyMetadata['transcript'] ?? null) ? $dailyMetadata['transcript'] : [];
+        $recordingMetadata = is_array($dailyMetadata['recording'] ?? null) ? $dailyMetadata['recording'] : [];
+
+        $transcriptText = $this->dailyService->resolveTranscriptText(
+            $recording->daily_transcript_id,
+            Arr::first([
+                $transcriptMetadata['access_link'] ?? null,
+                $transcriptMetadata['download_link'] ?? null,
+                $transcriptMetadata['link'] ?? null,
+                data_get($transcriptMetadata, 'out_params.access_link'),
+                data_get($transcriptMetadata, 'out_params.download_link'),
+                data_get($transcriptMetadata, 'out_params.link'),
+            ], static fn ($value) => is_string($value) && trim($value) !== '')
+        );
+
+        $downloadLink = $this->dailyService->resolveRecordingDownloadLink($recording->daily_recording_id)
+            ?? Arr::first([
+                $recording->recording_url,
+                $recordingMetadata['access_link'] ?? null,
+                $recordingMetadata['download_link'] ?? null,
+            ], static fn ($value) => is_string($value) && trim($value) !== '');
+
+        $updates = [
+            'provider_name' => 'daily',
+        ];
+
+        if ($transcriptText) {
+            $updates['transcript'] = $transcriptText;
+            $updates['transcription_status'] = 'completed';
+        }
+
+        if (is_string($downloadLink) && trim($downloadLink) !== '') {
+            $updates['recording_url'] = trim($downloadLink);
+        }
+
+        if (count($updates) > 1) {
+            $recording->update($updates);
+        }
+
+        $shouldGenerateSummary = ($validated['generate_ai_summary'] ?? true) && is_string($transcriptText) && trim($transcriptText) !== '';
+        if ($shouldGenerateSummary) {
+            try {
+                app(
+                    \App\Services\Ai\SessionInsightService::class
+                )->generatePostSessionSummary($session->fresh(['client', 'coach', 'recording']), true);
+            } catch (\Throwable $e) {
+                Log::info('Post-session AI summary sync skipped', [
+                    'session_id' => $session->id,
+                    'message' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return $this->success([
+            'session' => $this->presentSession($session->fresh(['coach', 'client', 'videoDetail', 'recording', 'participants', 'stateLogs', 'introRequest.preferredCoach:id,name,title,timezone', 'introRequest.assignedCoach:id,name,title,timezone']), $request->user()),
+            'synced' => [
+                'transcript' => (bool) $transcriptText,
+                'recording_url' => is_string($downloadLink) && trim($downloadLink) !== '',
+                'capture_started' => $captureStarted,
+            ],
+        ], ($transcriptText || $captureStarted['recording'] || $captureStarted['transcription']) ? 'Daily assets synced successfully' : 'No new Daily assets were available to sync');
     }
 
     public function updateRecording(Request $request, $id)
@@ -548,6 +663,10 @@ class SessionPortalController extends BaseController
             $this->logStateTransition($session, $fromState, $toState, optional($request->user())->id, $validated['reason'] ?? null, $validated['metadata'] ?? null);
 
             DB::commit();
+
+            if ($toState === 'live') {
+                $this->startDailyCaptureIfNeeded($session->fresh(['videoDetail', 'recording']), false);
+            }
 
             if (in_array($toState, ['completed', 'failed'], true)) {
                 $this->stopDailyCaptureIfNeeded($session->fresh(['videoDetail', 'recording']));
@@ -807,6 +926,7 @@ class SessionPortalController extends BaseController
             && !filter_var((string) env('ENABLE_LOCAL_SESSION_BILLING', false), FILTER_VALIDATE_BOOLEAN);
     }
 
+
     private function presentSession(CoachingSession $session, $user): array
     {
         $fresh = $session->fresh([
@@ -821,11 +941,13 @@ class SessionPortalController extends BaseController
         ]);
 
         $displayTimezone = $this->resolvePresentationTimezone($fresh, $user);
+        $resolvedScheduledTime = $this->resolveCanonicalScheduledTime($fresh);
         $payload = $fresh->toArray();
         $payload['status'] = $this->normalizeState((string) $fresh->status);
         $payload['raw_status'] = $fresh->status;
-        $payload['scheduled_time'] = optional($fresh->scheduled_time)?->toISOString();
-        $payload['scheduled_time_local'] = optional($fresh->scheduled_time)?->copy()->setTimezone($displayTimezone)->toIso8601String();
+        $payload['scheduled_time'] = optional($resolvedScheduledTime)?->toISOString();
+        $payload['scheduled_time_raw'] = optional($fresh->scheduled_time)?->toISOString();
+        $payload['scheduled_time_local'] = optional($resolvedScheduledTime)?->copy()->setTimezone($displayTimezone)->toIso8601String();
         $payload['actual_started_at'] = optional($fresh->actual_started_at)?->toISOString();
         $payload['actual_ended_at'] = optional($fresh->actual_ended_at)?->toISOString();
         $payload['last_activity_at'] = optional($fresh->last_activity_at)?->toISOString();
@@ -836,7 +958,8 @@ class SessionPortalController extends BaseController
             'viewer_timezone' => $displayTimezone,
             'coach_timezone' => Timezone::normalize($fresh->coach?->timezone, 'UTC'),
             'client_requested_timezone' => $this->resolveClientRequestedTimezone($fresh),
-            'scheduled_time_for_viewer' => optional($fresh->scheduled_time)?->copy()->setTimezone($displayTimezone)->toIso8601String(),
+            'scheduled_time_for_viewer' => optional($resolvedScheduledTime)?->copy()->setTimezone($displayTimezone)->toIso8601String(),
+            'scheduled_time_for_coach' => optional($resolvedScheduledTime)?->copy()->setTimezone(Timezone::normalize($fresh->coach?->timezone, 'UTC'))->toIso8601String(),
         ];
         $payload['recording'] = $this->serializeRecording($fresh->recording);
         $payload['source_request'] = $this->serializeSourceRequest($fresh->introRequest);
@@ -860,29 +983,52 @@ class SessionPortalController extends BaseController
     private function buildJoinPayload(CoachingSession $session, $user, ?SessionParticipant $participant = null): array
     {
         $role = $this->resolveRole($session, $user);
-
+        $validation = $this->buildValidationSnapshot($session, $user);
         $meetingToken = $this->buildMeetingToken($session, $user);
+        $requiresMeetingToken = !$this->dailyService->usingFakeRoom() && $this->dailyService->isConfigured();
 
-        return [
+        $payload = [
             'session_id' => $session->id,
             'video_join_url' => optional($session->videoDetail)->video_join_url,
             'video_join_url_with_token' => optional($session->videoDetail)->video_join_url,
             'meeting_token' => $meetingToken,
+            'requires_meeting_token' => $requiresMeetingToken,
             'daily_room_name' => optional($session->videoDetail)->daily_room_name,
             'status' => $session->status,
             'recording' => $session->recording,
             'display_name' => $user->name,
             'role' => $role,
             'is_owner' => $role === 'coach',
-            'expires_at' => optional($session->recovery_deadline_at)->toISOString(),
+            'expires_at' => data_get($validation, 'recovery_available_until'),
             'participant' => $participant?->fresh(),
-            'validation' => $this->buildValidationSnapshot($session, $user),
+            'validation' => $validation,
             'billing' => [
                 'token_cost' => $this->tokenCostForSession($session),
                 'is_intro_session' => (bool) ($session->is_intro_session ?? false),
                 'display_price' => $this->tokenCostForSession($session) === 0 ? 'Free' : $this->tokenCostForSession($session) . ' token',
             ],
         ];
+
+        if ($requiresMeetingToken && !is_string($meetingToken)) {
+            $payload['token_issue'] = 'Daily meeting token could not be issued for this secure room.';
+        }
+
+        return $payload;
+    }
+
+    private function ensureSecureJoinPayload(array $joinPayload): ?\Illuminate\Http\JsonResponse
+    {
+        $requiresMeetingToken = (bool) ($joinPayload['requires_meeting_token'] ?? false);
+        $meetingToken = $joinPayload['meeting_token'] ?? null;
+
+        if ($requiresMeetingToken && (!is_string($meetingToken) || trim($meetingToken) === '')) {
+            return $this->error(
+                $joinPayload['token_issue'] ?? 'Daily meeting token generation failed for this private room.',
+                503
+            );
+        }
+
+        return null;
     }
 
     private function resolvePresentationTimezone(CoachingSession $session, $user): string
@@ -906,7 +1052,14 @@ class SessionPortalController extends BaseController
             return Timezone::normalize((string) $session->introRequest->viewer_timezone, 'UTC');
         }
 
-        $scheduledLog = $session->relationLoaded('stateLogs')
+        $scheduledLog = $this->latestScheduledStateLog($session);
+
+        return Timezone::normalize(data_get($scheduledLog?->metadata ?? [], 'viewer_timezone'), 'UTC');
+    }
+
+    private function latestScheduledStateLog(CoachingSession $session): ?SessionStateLog
+    {
+        return $session->relationLoaded('stateLogs')
             ? $session->stateLogs
                 ->sortByDesc(fn ($log) => optional($log->created_at)?->getTimestamp() ?? 0)
                 ->first(fn ($log) => $this->normalizeState((string) $log->to_state) === 'scheduled')
@@ -914,8 +1067,46 @@ class SessionPortalController extends BaseController
                 ->where('to_state', 'scheduled')
                 ->orderByDesc('created_at')
                 ->first();
+    }
 
-        return Timezone::normalize(data_get($scheduledLog?->metadata ?? [], 'viewer_timezone'), 'UTC');
+    private function resolveCanonicalScheduledTime(CoachingSession $session): ?CarbonImmutable
+    {
+        $scheduledTime = optional($session->scheduled_time)?->copy();
+
+        if (!$scheduledTime) {
+            return null;
+        }
+
+        $scheduledLog = $this->latestScheduledStateLog($session);
+        $metadata = $scheduledLog?->metadata ?? [];
+        $viewerTimezone = Timezone::normalize(data_get($metadata, 'viewer_timezone'), $this->resolveClientRequestedTimezone($session));
+        $viewerScheduled = data_get($metadata, 'scheduled_time_in_viewer_timezone');
+
+        if (is_string($viewerScheduled) && trim($viewerScheduled) !== '') {
+            try {
+                return CarbonImmutable::parse($viewerScheduled)->setTimezone('UTC');
+            } catch (\Throwable $e) {
+                // fall back to the stored UTC timestamp
+            }
+        }
+
+        $storedUtc = CarbonImmutable::parse($scheduledTime->toISOString())->setTimezone('UTC');
+
+        if ($viewerTimezone !== 'UTC') {
+            try {
+                $localWallClock = $storedUtc->setTimezone($viewerTimezone)->format('Y-m-d H:i:s');
+                $reinterpretedUtc = CarbonImmutable::createFromFormat('Y-m-d H:i:s', $localWallClock, $viewerTimezone)->setTimezone('UTC');
+                $driftSeconds = abs($reinterpretedUtc->getTimestamp() - $storedUtc->getTimestamp());
+
+                if ($driftSeconds >= 1800 && in_array($this->normalizeState((string) $session->status), ['live', 'interrupted'], true) && !$session->actual_started_at) {
+                    return $reinterpretedUtc;
+                }
+            } catch (\Throwable $e) {
+                // keep the stored UTC timestamp
+            }
+        }
+
+        return $storedUtc;
     }
 
     private function serializeSourceRequest($introRequest): ?array
@@ -968,85 +1159,101 @@ class SessionPortalController extends BaseController
         ];
     }
 
-    private function buildValidationSnapshot(CoachingSession $session, $user): array
-    {
-        $now = now();
-        $scheduledTime = $session->scheduled_time;
-        $joinOpensAt = $scheduledTime?->copy()->subMinutes(self::PRE_JOIN_MINUTES);
-        $joinClosesAt = $scheduledTime?->copy()->addMinutes(max((int) $session->duration_minutes, 15) + self::RECOVERY_BUFFER_MINUTES);
 
-        $status = $this->normalizeState($session->status);
-        $isCompleted = $status === 'completed';
-        $isExpired = $joinClosesAt ? $now->greaterThan($joinClosesAt) : false;
-        $roomReady = !empty(optional($session->videoDetail)->video_join_url);
-        $manualRecoveryAllowed = $this->canManualRecover($session, $user);
+private function buildValidationSnapshot(CoachingSession $session, $user): array
+{
+    $now = now();
+    $scheduledTime = $this->resolveCanonicalScheduledTime($session);
+    $joinOpensAt = $scheduledTime?->copy()->subMinutes(self::PRE_JOIN_MINUTES);
+    $joinClosesAt = $scheduledTime?->copy()->addMinutes(max((int) $session->duration_minutes, 15) + self::RECOVERY_BUFFER_MINUTES);
 
-        $canJoinByStatus = in_array($status, ['scheduled', 'live', 'interrupted'], true);
-        $canJoinByTime = !$joinOpensAt || !$joinClosesAt
-            ? true
-            : $now->greaterThanOrEqualTo($joinOpensAt) && $now->lessThanOrEqualTo($joinClosesAt);
+    $status = $this->normalizeState($session->status);
+    $isCompleted = $status === 'completed';
+    $roomReady = !empty(optional($session->videoDetail)->video_join_url);
+    $manualRecoveryAllowed = $this->canManualRecover($session, $user);
+    $hasRecoveryActivity = filled($session->actual_started_at)
+        || filled($session->last_activity_at)
+        || filled($session->last_interrupted_at)
+        || (int) ($session->recovery_attempts ?? 0) > 0;
+    $statusCanJoin = in_array($status, ['scheduled', 'live', 'interrupted'], true);
+    $windowOpen = !$joinOpensAt || $now->greaterThanOrEqualTo($joinOpensAt);
+    $windowClosed = $joinClosesAt ? $now->greaterThan($joinClosesAt) : false;
+    $timeAllowsJoin = !$joinClosesAt || (!$windowClosed && $windowOpen);
+    $liveOrInterruptedRecovery = in_array($status, ['live', 'interrupted'], true) && $roomReady && !$isCompleted && (!$windowClosed || $hasRecoveryActivity);
 
-        $canJoin = !$isCompleted && !$isExpired && $canJoinByStatus && $canJoinByTime;
+    $canJoin = !$isCompleted
+        && $statusCanJoin
+        && $roomReady
+        && ($timeAllowsJoin || $liveOrInterruptedRecovery);
 
-        $message = null;
-        $recommendedAction = 'join_now';
+    $message = null;
+    $recommendedAction = 'join_now';
 
-        if ($isCompleted) {
-            $recommendedAction = 'view_summary';
-            $message = 'This session has already completed.';
-        } elseif ($status === 'failed') {
-            $recommendedAction = $manualRecoveryAllowed ? 'manual_recovery' : 'contact_support';
-            $message = $session->failure_reason ?: 'This session has been marked failed.';
-            $canJoin = false;
-        } elseif ($status === 'interrupted') {
-            $recommendedAction = 'resume_session';
-            $message = 'This session was interrupted and can be resumed.';
-        } elseif ($joinOpensAt && $now->lessThan($joinOpensAt)) {
-            $recommendedAction = 'wait_for_session_time';
-            $message = 'The join window has not opened yet.';
-            $canJoin = false;
-        } elseif ($isExpired) {
-            $recommendedAction = $manualRecoveryAllowed ? 'manual_recovery' : 'contact_support';
-            $message = 'The session join window has expired.';
-            $canJoin = false;
-        } elseif (!$roomReady) {
-            $recommendedAction = $manualRecoveryAllowed ? 'refresh_room' : 'contact_support';
-            $message = 'The session room needs to be refreshed before joining.';
-            $canJoin = $manualRecoveryAllowed;
-        } elseif ($status === 'live') {
-            $recommendedAction = 'rejoin_now';
-            $message = 'The session is live and ready to rejoin.';
-        }
-
-        $recoveryAvailableUntil = $session->recovery_deadline_at ?: $joinClosesAt;
-
-        return [
-            'valid' => $canJoin || !$isCompleted,
-            'can_join' => $canJoin,
-            'session_id' => $session->id,
-            'session_status' => $status,
-            'scheduled_time' => optional($scheduledTime)?->toISOString(),
-            'actual_started_at' => optional($session->actual_started_at)?->toISOString(),
-            'actual_ended_at' => optional($session->actual_ended_at)?->toISOString(),
-            'join_window' => [
-                'opens_at' => optional($joinOpensAt)?->toISOString(),
-                'closes_at' => optional($joinClosesAt)?->toISOString(),
-            ],
-            'room_ready' => $roomReady,
-            'needs_recovery' => $status === 'interrupted' || !$roomReady || ((int) ($session->recovery_attempts ?? 0) > 0 && $status !== 'completed'),
-            'manual_recovery_allowed' => $manualRecoveryAllowed,
-            'recommended_action' => $recommendedAction,
-            'message' => $message,
-            'last_activity_at' => optional($session->last_activity_at)?->toISOString(),
-            'last_interrupted_at' => optional($session->last_interrupted_at)?->toISOString(),
-            'recovery_available_until' => optional($recoveryAvailableUntil)?->toISOString(),
-            'failure_reason' => $session->failure_reason,
-            'recovery_attempts' => (int) ($session->recovery_attempts ?? 0),
-            'role' => $this->resolveRole($session, $user),
-        ];
+    if ($isCompleted) {
+        $recommendedAction = 'view_summary';
+        $message = 'This session has already completed.';
+        $canJoin = false;
+    } elseif ($status === 'failed') {
+        $recommendedAction = $manualRecoveryAllowed ? 'manual_recovery' : 'contact_support';
+        $message = $session->failure_reason ?: 'This session has been marked failed.';
+        $canJoin = false;
+    } elseif (!$roomReady) {
+        $recommendedAction = $manualRecoveryAllowed ? 'refresh_room' : 'contact_support';
+        $message = 'The session room needs to be refreshed before joining.';
+        $canJoin = $manualRecoveryAllowed;
+    } elseif ($status === 'interrupted') {
+        $recommendedAction = 'resume_session';
+        $message = 'This session was interrupted and can be resumed.';
+        $canJoin = !$windowClosed;
+    } elseif ($status === 'live') {
+        $recommendedAction = 'rejoin_now';
+        $message = 'The session is live and ready to join.';
+        $canJoin = !$windowClosed || $hasRecoveryActivity;
+    } elseif ($joinOpensAt && $now->lessThan($joinOpensAt)) {
+        $recommendedAction = 'wait_for_session_time';
+        $message = 'The join window has not opened yet.';
+        $canJoin = false;
+    } elseif ($windowClosed) {
+        $recommendedAction = $manualRecoveryAllowed ? 'manual_recovery' : 'contact_support';
+        $message = 'The session join window has expired.';
+        $canJoin = false;
     }
 
-    private function canManualRecover(CoachingSession $session, $user): bool
+    $recoveryAvailableUntil = $session->recovery_deadline_at ?: $joinClosesAt;
+    $viewerTimezone = $this->resolvePresentationTimezone($session, $user);
+
+    return [
+        'valid' => $canJoin || !$isCompleted,
+        'can_join' => $canJoin,
+        'session_id' => $session->id,
+        'session_status' => $status,
+        'scheduled_time' => optional($scheduledTime)?->toISOString(),
+        'scheduled_time_raw' => optional($session->scheduled_time)?->toISOString(),
+        'scheduled_time_for_viewer' => optional($scheduledTime)?->copy()->setTimezone($viewerTimezone)->toIso8601String(),
+        'viewer_timezone' => $viewerTimezone,
+        'actual_started_at' => optional($session->actual_started_at)?->toISOString(),
+        'actual_ended_at' => optional($session->actual_ended_at)?->toISOString(),
+        'join_window' => [
+            'opens_at' => optional($joinOpensAt)?->toISOString(),
+            'closes_at' => optional($joinClosesAt)?->toISOString(),
+            'opens_at_for_viewer' => optional($joinOpensAt)?->copy()->setTimezone($viewerTimezone)->toIso8601String(),
+            'closes_at_for_viewer' => optional($joinClosesAt)?->copy()->setTimezone($viewerTimezone)->toIso8601String(),
+        ],
+        'room_ready' => $roomReady,
+        'needs_recovery' => $status === 'interrupted' || (($status === 'live') && $hasRecoveryActivity) || !$roomReady,
+        'manual_recovery_allowed' => $manualRecoveryAllowed,
+        'recommended_action' => $recommendedAction,
+        'message' => $message,
+        'last_activity_at' => optional($session->last_activity_at)?->toISOString(),
+        'last_interrupted_at' => optional($session->last_interrupted_at)?->toISOString(),
+        'recovery_available_until' => optional($recoveryAvailableUntil)?->toISOString(),
+        'failure_reason' => $session->failure_reason,
+        'recovery_attempts' => (int) ($session->recovery_attempts ?? 0),
+        'role' => $this->resolveRole($session, $user),
+    ];
+}
+
+private function canManualRecover(CoachingSession $session, $user): bool
     {
         if (!$user) {
             return false;
@@ -1128,15 +1335,32 @@ class SessionPortalController extends BaseController
             return null;
         }
 
+        $role = $this->resolveRole($session, $user);
+        $isCoach = $role === 'coach';
+        $window = $this->buildMeetingTokenWindow($session);
+
+        $properties = [
+            'nbf' => $window['nbf'],
+            'exp' => $window['exp'],
+            'eject_at_token_exp' => true,
+            'is_owner' => $isCoach,
+            'user_name' => (string) ($user->name ?? 'Participant'),
+            'user_id' => (string) $user->id,
+            'enable_screenshare' => $isCoach,
+            'start_video_off' => false,
+            'start_audio_off' => false,
+            'eject_after_elapsed' => max(1800, (((int) ($session->duration_minutes ?? 15)) + 20) * 60),
+        ];
+
+        if (!$isCoach) {
+            $properties['permissions'] = [
+                'canSend' => ['video', 'audio'],
+                'canAdmin' => false,
+            ];
+        }
+
         try {
-            return $this->dailyService->createMeetingToken($roomName, [
-                'nbf' => now()->subMinutes(10)->timestamp,
-                'exp' => now()->addHours(4)->timestamp,
-                'is_owner' => (int) optional($session->coach)->user_id === (int) $user->id,
-                'user_name' => (string) ($user->name ?? 'Participant'),
-                'user_id' => (string) $user->id,
-                'eject_after_elapsed' => max(1800, (((int) ($session->duration_minutes ?? 15)) + 20) * 60),
-            ]);
+            return $this->dailyService->createMeetingToken($roomName, $properties);
         } catch (\Throwable $e) {
             Log::warning('Daily meeting token generation failed', [
                 'session_id' => $session->id,
@@ -1148,45 +1372,251 @@ class SessionPortalController extends BaseController
         }
     }
 
-    private function stopDailyCaptureIfNeeded(CoachingSession $session): void
-    {
-        $roomName = optional($session->videoDetail)->daily_room_name;
-        $recording = $session->recording ?: $this->ensureSessionRecording($session);
-        $privacy = $recording->privacy_settings ?? [];
+    private function startDailyCaptureIfNeeded(CoachingSession $session, bool $force = false): array
+{
+    $roomName = optional($session->videoDetail)->daily_room_name;
+    $recording = $session->recording ?: $this->ensureSessionRecording($session);
+    $privacy = is_array($recording->privacy_settings) ? $recording->privacy_settings : [];
+    $providerMetadata = is_array($recording->provider_metadata) ? $recording->provider_metadata : [];
+    $captureStarted = [
+        'recording' => false,
+        'transcription' => false,
+    ];
 
-        if (!$roomName || $this->dailyService->usingFakeRoom() || !$this->dailyService->isConfigured()) {
-            return;
-        }
+    if (!$roomName || $this->dailyService->usingFakeRoom() || !$this->dailyService->isConfigured()) {
+        return $captureStarted;
+    }
 
-        if (($privacy['transcription_consent'] ?? 'none') === 'full') {
-            try {
-                $payload = array_filter([
-                    'instanceId' => $recording->daily_transcript_instance_id,
-                ]);
-                $this->dailyService->stopTranscription($roomName, $payload);
-            } catch (\Throwable $e) {
-                Log::info('Daily transcription stop skipped', [
-                    'session_id' => $session->id,
-                    'message' => $e->getMessage(),
-                ]);
-            }
-        }
+    $recordingStatus = data_get($providerMetadata, 'daily.recording.status');
+    $transcriptionStatus = data_get($providerMetadata, 'daily.transcript.status');
 
-        if (($privacy['recording_enabled'] ?? false) === true) {
-            try {
-                $payload = array_filter([
-                    'instanceId' => $recording->daily_recording_instance_id,
-                    'type' => 'cloud',
+    if (($privacy['recording_enabled'] ?? false) === true && ($force || !in_array($recordingStatus, ['active', 'completed'], true))) {
+        try {
+            $response = $this->dailyService->startRecording($roomName, ['type' => 'cloud']);
+            $captureStarted['recording'] = true;
+
+            $providerMetadata = array_replace_recursive(
+                is_array($recording->provider_metadata) ? $recording->provider_metadata : [],
+                [
+                    'daily' => [
+                        'recording' => [
+                            'status' => 'active',
+                            'started_at' => now()->toISOString(),
+                            'start_response' => $response,
+                        ],
+                    ],
+                ]
+            );
+
+            $recording->update([
+                'provider_name' => 'daily',
+                'daily_recording_id' => $response['recordingId'] ?? $response['recording_id'] ?? $recording->daily_recording_id,
+                'daily_recording_instance_id' => $response['instanceId'] ?? $response['instance_id'] ?? $recording->daily_recording_instance_id,
+                'provider_metadata' => $providerMetadata,
+            ]);
+        } catch (\Throwable $e) {
+            if ($this->isDailyAlreadyActiveStreamError($e)) {
+                $providerMetadata = array_replace_recursive(
+                    is_array($recording->provider_metadata) ? $recording->provider_metadata : [],
+                    [
+                        'daily' => [
+                            'recording' => [
+                                'status' => 'active',
+                                'reconfirmed_at' => now()->toISOString(),
+                                'last_start_skip_reason' => $e->getMessage(),
+                            ],
+                        ],
+                    ]
+                );
+
+                $recording->update([
+                    'provider_name' => 'daily',
+                    'provider_metadata' => $providerMetadata,
                 ]);
-                $this->dailyService->stopRecording($roomName, $payload);
-            } catch (\Throwable $e) {
-                Log::info('Daily recording stop skipped', [
+            } else {
+                Log::info('Daily recording start skipped', [
                     'session_id' => $session->id,
                     'message' => $e->getMessage(),
                 ]);
             }
         }
     }
+
+    if (($privacy['transcription_consent'] ?? 'none') === 'full' && ($force || !in_array($transcriptionStatus, ['active', 'completed'], true))) {
+        try {
+            $response = $this->dailyService->startTranscription($roomName);
+            $captureStarted['transcription'] = true;
+
+            $providerMetadata = array_replace_recursive(
+                is_array($recording->provider_metadata) ? $recording->provider_metadata : [],
+                [
+                    'daily' => [
+                        'transcript' => [
+                            'status' => 'active',
+                            'started_at' => now()->toISOString(),
+                            'start_response' => $response,
+                        ],
+                    ],
+                ]
+            );
+
+            $transcriptLink = $this->extractDailyTranscriptLinkFromPayload($response);
+
+            $recording->update([
+                'provider_name' => 'daily',
+                'daily_transcript_id' => $this->extractDailyTranscriptIdFromResponse($response) ?? $recording->daily_transcript_id,
+                'daily_transcript_instance_id' => data_get($response, 'info.instanceId')
+                    ?? data_get($response, 'info.instance_id')
+                    ?? data_get($response, 'transcript.instanceId')
+                    ?? data_get($response, 'transcript.instance_id')
+                    ?? $response['instanceId']
+                    ?? $response['instance_id']
+                    ?? $recording->daily_transcript_instance_id,
+                'transcription_status' => 'active',
+                'provider_metadata' => array_replace_recursive($providerMetadata, [
+                    'daily' => [
+                        'transcript' => [
+                            'access_link' => $transcriptLink,
+                            'download_link' => $transcriptLink,
+                        ],
+                    ],
+                ]),
+            ]);
+        } catch (\Throwable $e) {
+            if ($this->isDailyAlreadyActiveStreamError($e)) {
+                $providerMetadata = array_replace_recursive(
+                    is_array($recording->provider_metadata) ? $recording->provider_metadata : [],
+                    [
+                        'daily' => [
+                            'transcript' => [
+                                'status' => 'active',
+                                'reconfirmed_at' => now()->toISOString(),
+                                'last_start_skip_reason' => $e->getMessage(),
+                            ],
+                        ],
+                    ]
+                );
+
+                $recording->update([
+                    'provider_name' => 'daily',
+                    'transcription_status' => 'active',
+                    'provider_metadata' => $providerMetadata,
+                ]);
+            } else {
+                Log::info('Daily transcription start skipped', [
+                    'session_id' => $session->id,
+                    'message' => $e->getMessage(),
+                ]);
+            }
+        }
+    }
+
+    return $captureStarted;
+}
+
+
+private function buildMeetingTokenWindow(CoachingSession $session): array
+{
+    $scheduledAt = $this->resolveCanonicalScheduledTime($session);
+    $status = $this->normalizeState((string) $session->status);
+    $joinStart = $scheduledAt ? $scheduledAt->copy()->subMinutes(15) : now()->subMinutes(10);
+    $plannedEnd = $scheduledAt
+        ? $scheduledAt->copy()->addMinutes((int) ($session->duration_minutes ?? 15) + self::RECOVERY_BUFFER_MINUTES)
+        : now()->addHours(2);
+    $recoveryDeadline = optional($session->recovery_deadline_at);
+    $expiresAt = $recoveryDeadline && $recoveryDeadline->greaterThan($plannedEnd)
+        ? $recoveryDeadline->copy()
+        : $plannedEnd;
+
+    if (in_array($status, ['live', 'interrupted'], true) && $joinStart->greaterThan(now()->subMinutes(5))) {
+        $joinStart = now()->subMinutes(5);
+    }
+
+    if ($expiresAt->lessThan(now()->addMinutes(30))) {
+        $expiresAt = now()->addMinutes(30);
+    }
+
+    return [
+        'nbf' => $joinStart->timestamp,
+        'exp' => $expiresAt->timestamp,
+    ];
+}
+
+private function canManageCapture(CoachingSession $session, $user): bool
+    {
+        if (!$user) {
+            return false;
+        }
+
+        return (method_exists($user, 'isAdmin') && $user->isAdmin())
+            || (int) optional($session->coach)->user_id === (int) $user->id;
+    }
+
+   private function stopDailyCaptureIfNeeded(CoachingSession $session): void
+{
+    $roomName = optional($session->videoDetail)->daily_room_name;
+    $recording = $session->recording ?: $this->ensureSessionRecording($session);
+    $privacy = is_array($recording->privacy_settings) ? $recording->privacy_settings : [];
+    $providerMetadata = is_array($recording->provider_metadata) ? $recording->provider_metadata : [];
+
+    if (!$roomName || $this->dailyService->usingFakeRoom() || !$this->dailyService->isConfigured()) {
+        return;
+    }
+
+    if (($privacy['transcription_consent'] ?? 'none') === 'full') {
+        try {
+            $payload = array_filter([
+                'instanceId' => $recording->daily_transcript_instance_id,
+            ]);
+
+            $this->dailyService->stopTranscription($roomName, $payload);
+
+            $recording->update([
+                'provider_metadata' => array_replace_recursive($providerMetadata, [
+                    'daily' => [
+                        'transcript' => [
+                            'stop_requested_at' => now()->toISOString(),
+                        ],
+                    ],
+                ]),
+            ]);
+        } catch (\Throwable $e) {
+            Log::info('Daily transcription stop skipped', [
+                'session_id' => $session->id,
+                'message' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    if (($privacy['recording_enabled'] ?? false) === true) {
+        try {
+            $payload = array_filter([
+                'instanceId' => $recording->daily_recording_instance_id,
+                'type' => 'cloud',
+            ]);
+
+            $this->dailyService->stopRecording($roomName, $payload);
+
+            $recording->update([
+                'provider_metadata' => array_replace_recursive(
+                    is_array($recording->provider_metadata) ? $recording->provider_metadata : [],
+                    [
+                        'daily' => [
+                            'recording' => [
+                                'stop_requested_at' => now()->toISOString(),
+                            ],
+                        ],
+                    ]
+                ),
+            ]);
+        } catch (\Throwable $e) {
+            Log::info('Daily recording stop skipped', [
+                'session_id' => $session->id,
+                'message' => $e->getMessage(),
+            ]);
+        }
+    }
+}
 
     private function mergeRecoveryContext($existing, array $extra): array
     {
@@ -1352,5 +1782,55 @@ class SessionPortalController extends BaseController
     private function tokenCostForSession(CoachingSession $session): int
     {
         return max(0, (int) round((float) ($session->price_amount ?? 1)));
+    }
+
+
+private function extractDailyTranscriptIdFromResponse(array $payload): ?string
+{
+    foreach ([
+        $payload['id'] ?? null,
+        $payload['transcript_id'] ?? null,
+        $payload['transcriptId'] ?? null,
+        data_get($payload, 'transcript.id'),
+        data_get($payload, 'transcript.transcript_id'),
+        data_get($payload, 'transcript.transcriptId'),
+        data_get($payload, 'info.id'),
+    ] as $value) {
+        if (is_string($value) && trim($value) !== '') {
+            return trim($value);
+        }
+    }
+
+    return null;
+}
+
+private function extractDailyTranscriptLinkFromPayload(array $payload): ?string
+{
+    foreach ([
+        $payload['access_link'] ?? null,
+        $payload['download_link'] ?? null,
+        $payload['link'] ?? null,
+        $payload['url'] ?? null,
+        data_get($payload, 'out_params.access_link'),
+        data_get($payload, 'out_params.download_link'),
+        data_get($payload, 'out_params.link'),
+        data_get($payload, 'transcript.access_link'),
+        data_get($payload, 'transcript.download_link'),
+        data_get($payload, 'transcript.link'),
+    ] as $value) {
+        if (is_string($value) && trim($value) !== '') {
+            return trim($value);
+        }
+    }
+
+    return null;
+}
+
+    private function isDailyAlreadyActiveStreamError(\Throwable $e): bool
+    {
+        $message = strtolower($e->getMessage());
+
+        return str_contains($message, 'has an active stream')
+            || str_contains($message, 'stream in progress');
     }
 }
