@@ -5,6 +5,7 @@ namespace App\Services\Communication;
 use App\Models\Communication\ScheduledNotification;
 use App\Models\Session\CoachingSession;
 use App\Models\User;
+use App\Support\Timezone;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -219,7 +220,10 @@ class SessionReminderService
 
     private function bodyForWindow(CoachingSession $session, User $recipient, string $windowLabel): string
     {
-        $scheduled = optional($session->scheduled_time)?->format('M d, Y h:i A') ?? 'the scheduled time';
+        $scheduledTime = $session->scheduled_time;
+        $scheduled = $scheduledTime
+            ? $scheduledTime->copy()->setTimezone($this->resolveAudienceTimezone($session, $recipient))->format('M d, Y h:i A')
+            : 'the scheduled time';
         $coachName = $session->coach?->name ?? 'your coach';
         $clientName = $session->client?->name ?? 'your client';
 
@@ -228,6 +232,35 @@ class SessionReminderService
         return $isCoach
             ? sprintf('%s is coming up in %s with %s at %s.', 'Your coaching session', $windowLabel, $clientName, $scheduled)
             : sprintf('%s is coming up in %s with %s at %s.', 'Your coaching session', $windowLabel, $coachName, $scheduled);
+    }
+
+    private function resolveAudienceTimezone(CoachingSession $session, User $recipient): string
+    {
+        $isCoach = $session->coach && (int) $session->coach->user_id === (int) $recipient->id;
+
+        if ($isCoach) {
+            return Timezone::normalize($session->coach?->timezone, 'UTC');
+        }
+
+        return Timezone::normalize($this->resolveViewerTimezone($session), 'UTC');
+    }
+
+    private function resolveViewerTimezone(CoachingSession $session): ?string
+    {
+        $scheduledLog = $session->relationLoaded('stateLogs')
+            ? $session->stateLogs
+                ->sortByDesc(fn ($log) => optional($log->created_at)?->getTimestamp() ?? 0)
+                ->first(fn ($log) => $this->normalizeState((string) $log->to_state) === 'scheduled')
+            : $session->stateLogs()
+                ->where('to_state', 'scheduled')
+                ->orderByDesc('created_at')
+                ->first();
+
+        $viewerTimezone = data_get($scheduledLog?->metadata ?? [], 'viewer_timezone');
+
+        return is_string($viewerTimezone) && trim($viewerTimezone) !== ''
+            ? $viewerTimezone
+            : null;
     }
 
     private function normalizeState(string $state): string

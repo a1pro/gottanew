@@ -22,6 +22,8 @@ class Cors
         'http://127.0.0.1:8000',
         'http://localhost:8080',
         'http://127.0.0.1:8080',
+        'http://127.0.0.1:4040',
+        'https://f177-122-173-28-222.ngrok-free.app',
         'https://gotta.a1professionals.net',
         'https://gottaweb.a1professionals.net',
     ];

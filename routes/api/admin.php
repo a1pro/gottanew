@@ -25,6 +25,9 @@ Route::prefix('admin')
 
         Route::get('/transcripts', [AdminController::class, 'transcripts']);
         Route::get('/transcripts/{id}', [AdminController::class, 'transcript']);
+        Route::get('/transcripts/{id}/verify-daily', [AdminController::class, 'verifyDaily']);
+        Route::post('/transcripts/{id}/sync', [AdminController::class, 'syncTranscript']);
+        Route::post('/transcripts/{id}/generate-summary', [AdminController::class, 'generateSummary']);
 
         Route::get('/delivery-logs', [AdminNotificationController::class, 'deliveryLogs']);
 

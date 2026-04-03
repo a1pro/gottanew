@@ -3,10 +3,12 @@
 namespace App\Http\Controllers\Api\Webhook;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\SyncDailyTranscriptJob;
 use App\Models\Session\CoachingSession;
 use App\Models\Session\SessionRecording;
-use App\Services\Ai\SessionInsightService;
+use App\Models\Webhook\WebhookEventReceipt;
 use App\Services\Video\DailyRestApiService;
+use App\Services\Video\DailyWebhookValidator;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
@@ -16,13 +18,48 @@ class DailyWebhookController extends Controller
 {
     public function __construct(
         private DailyRestApiService $dailyService,
-        private SessionInsightService $sessionInsightService,
+        private DailyWebhookValidator $webhookValidator,
     ) {
     }
 
     public function handle(Request $request): JsonResponse
     {
         $event = $request->all();
+
+        Log::info('Daily webhook entered controller', [
+                'headers' => [
+                    'signature' => $request->header('X-Webhook-Signature'),
+                    'timestamp' => $request->header('X-Webhook-Timestamp'),
+                ],
+                'body' => $event,
+            ]);
+
+        if ($this->isVerificationRequest($request, $event)) {
+            Log::info('Accepted Daily webhook verification request.', [
+                'ip' => $request->ip(),
+                'user_agent' => $request->userAgent(),
+                'content_type' => $request->header('Content-Type'),
+                'raw_body' => $request->getContent(),
+                'has_signature' => filled($request->header('X-Webhook-Signature')),
+                'has_timestamp' => filled($request->header('X-Webhook-Timestamp')),
+            ]);
+
+            return response()->json(['ok' => true, 'verification' => true]);
+        }
+
+        if (!$this->webhookValidator->isValid($request)) {
+            Log::warning('Rejected Daily webhook because signature validation failed.', [
+                'ip' => $request->ip(),
+                'user_agent' => $request->userAgent(),
+                'content_type' => $request->header('Content-Type'),
+                'raw_body' => $request->getContent(),
+                'has_signature' => filled($request->header('X-Webhook-Signature')),
+                'has_timestamp' => filled($request->header('X-Webhook-Timestamp')),
+            ]);
+
+            return response()->json(['message' => 'Invalid Daily signature.'], 403);
+        }
+
         $eventType = (string) ($event['type'] ?? data_get($event, 'payload.type') ?? 'unknown');
         $payload = $this->extractPayload($event);
         $roomName = (string) ($payload['room_name'] ?? data_get($event, 'room_name') ?? '');
@@ -34,6 +71,32 @@ class DailyWebhookController extends Controller
             ]);
 
             return response()->json(['ok' => true, 'ignored' => true, 'reason' => 'missing_room_name']);
+        }
+
+        $providerEventId = trim((string) ($event['id'] ?? ''));
+        if ($providerEventId === '') {
+            $providerEventId = sha1((string) $request->getContent());
+        }
+
+        try {
+            $receipt = WebhookEventReceipt::firstOrCreate(
+                [
+                    'provider_name' => 'daily',
+                    'provider_event_id' => $providerEventId,
+                ],
+                [
+                    'event_type' => $eventType,
+                    'room_name' => $roomName,
+                    'payload' => $event,
+                    'received_at' => now(),
+                ]
+            );
+        } catch (\Throwable) {
+            return response()->json(['ok' => true, 'duplicate' => true]);
+        }
+
+        if (!$receipt->wasRecentlyCreated) {
+            return response()->json(['ok' => true, 'duplicate' => true]);
         }
 
         $session = CoachingSession::query()
@@ -51,6 +114,8 @@ class DailyWebhookController extends Controller
             return response()->json(['ok' => true, 'ignored' => true, 'reason' => 'session_not_found']);
         }
 
+        $receipt->update(['session_id' => $session->id]);
+
         $recording = $this->ensureRecording($session);
 
         try {
@@ -63,28 +128,71 @@ class DailyWebhookController extends Controller
                 'recording.error' => $this->handleRecordingError($recording, $payload),
                 default => null,
             };
+
+            $receipt->update(['processed_at' => now()]);
         } catch (\Throwable $e) {
             Log::error('Daily webhook processing failed', [
                 'type' => $eventType,
                 'session_id' => $session->id,
                 'message' => $e->getMessage(),
+                'payload' => $payload,
+            ]);
+
+            $receipt->update([
+                'processing_error' => $e->getMessage(),
+                'processed_at' => now(),
             ]);
 
             return response()->json([
-                'ok' => false,
-                'message' => $e->getMessage(),
-            ], 500);
+                'ok' => true,
+                'processed' => false,
+            ], 200);
         }
 
         return response()->json(['ok' => true]);
     }
 
+    private function isVerificationRequest(Request $request, array $event): bool
+    {
+        $testValue = $event['test'] ?? $event['Test'] ?? null;
+
+        if (is_bool($testValue)) {
+            return $testValue;
+        }
+
+        if (is_string($testValue)) {
+            $normalized = strtolower(trim($testValue));
+
+            if (in_array($normalized, ['1', 'true', 'yes', 'ok', 'test'], true)) {
+                return true;
+            }
+        }
+
+        $eventType = (string) ($event['type'] ?? data_get($event, 'payload.type') ?? '');
+        $roomName = (string) ($event['room_name'] ?? data_get($event, 'payload.room_name') ?? '');
+
+        if ($eventType === '' && $roomName === '') {
+            return true;
+        }
+
+        $rawBody = trim((string) $request->getContent());
+
+        if ($rawBody === '' || strtolower($rawBody) === 'test') {
+            return true;
+        }
+
+        return false;
+    }
+
     private function handleTranscriptStarted(SessionRecording $recording, array $payload): void
     {
+        $transcriptId = $this->extractTranscriptId($payload);
+        $transcriptInstanceId = $this->extractInstanceId($payload);
+
         $recording->update([
             'provider_name' => 'daily',
-            'daily_transcript_id' => $payload['id'] ?? $recording->daily_transcript_id,
-            'daily_transcript_instance_id' => $payload['instanceId'] ?? $recording->daily_transcript_instance_id,
+            'daily_transcript_id' => $transcriptId ?: $recording->daily_transcript_id,
+            'daily_transcript_instance_id' => $transcriptInstanceId ?: $recording->daily_transcript_instance_id,
             'transcription_status' => 'active',
             'provider_metadata' => $this->mergeProviderMetadata($recording, [
                 'daily' => [
@@ -93,11 +201,13 @@ class DailyWebhookController extends Controller
                         'started_at' => now()->toISOString(),
                         'event_payload' => Arr::only($payload, [
                             'id',
+                            'instance_id',
                             'instanceId',
                             'room_id',
                             'room_name',
                             'mtg_session_id',
                             'duration',
+                            'status',
                         ]),
                     ],
                 ],
@@ -107,27 +217,28 @@ class DailyWebhookController extends Controller
 
     private function handleTranscriptReady(CoachingSession $session, SessionRecording $recording, array $payload): void
     {
-        $transcriptId = (string) ($payload['id'] ?? $recording->daily_transcript_id ?? '');
-        $accessLinkResponse = $transcriptId !== '' ? $this->dailyService->getTranscriptAccessLink($transcriptId) : [];
-        $accessLink = $accessLinkResponse['link'] ?? $accessLinkResponse['download_link'] ?? null;
-        $transcriptText = $this->dailyService->fetchTextFromAccessLink(is_string($accessLink) ? $accessLink : null);
+        $transcriptId = $this->extractTranscriptId($payload);
+        $transcriptInstanceId = $this->extractInstanceId($payload);
+
+        $transcriptLink = $this->extractTranscriptAccessLink($payload);
 
         $recording->update([
             'provider_name' => 'daily',
-            'daily_transcript_id' => $transcriptId !== '' ? $transcriptId : $recording->daily_transcript_id,
-            'daily_transcript_instance_id' => $payload['instanceId'] ?? $recording->daily_transcript_instance_id,
-            'transcript' => $transcriptText ?: $recording->transcript,
+            'daily_transcript_id' => $transcriptId ?: $recording->daily_transcript_id,
+            'daily_transcript_instance_id' => $transcriptInstanceId ?: $recording->daily_transcript_instance_id,
             'transcription_status' => 'completed',
             'duration_seconds' => $payload['duration'] ?? $recording->duration_seconds,
             'provider_metadata' => $this->mergeProviderMetadata($recording, [
                 'daily' => [
                     'transcript' => [
-                        'status' => 'completed',
-                        'completed_at' => now()->toISOString(),
-                        'access_link' => $accessLink,
+                        'status' => 'ready_to_download',
+                        'ready_at' => now()->toISOString(),
+                        'access_link' => $transcriptLink,
+                        'download_link' => $transcriptLink,
                         'out_params' => $payload['out_params'] ?? null,
                         'event_payload' => Arr::only($payload, [
                             'id',
+                            'instance_id',
                             'instanceId',
                             'room_id',
                             'room_name',
@@ -141,17 +252,22 @@ class DailyWebhookController extends Controller
             ]),
         ]);
 
-        if ($transcriptText) {
-            $this->sessionInsightService->generatePostSessionSummary($session->fresh(['client', 'coach', 'recording']), true);
+        if ((string) config('queue.default') === 'sync') {
+            SyncDailyTranscriptJob::dispatchSync($session->id);
+        } else {
+            SyncDailyTranscriptJob::dispatch($session->id);
         }
     }
 
     private function handleTranscriptError(SessionRecording $recording, array $payload): void
     {
+        $transcriptId = $this->extractTranscriptId($payload);
+        $transcriptInstanceId = $this->extractInstanceId($payload);
+
         $recording->update([
             'provider_name' => 'daily',
-            'daily_transcript_id' => $payload['id'] ?? $recording->daily_transcript_id,
-            'daily_transcript_instance_id' => $payload['instanceId'] ?? $recording->daily_transcript_instance_id,
+            'daily_transcript_id' => $transcriptId ?: $recording->daily_transcript_id,
+            'daily_transcript_instance_id' => $transcriptInstanceId ?: $recording->daily_transcript_instance_id,
             'transcription_status' => 'inactive',
             'provider_metadata' => $this->mergeProviderMetadata($recording, [
                 'daily' => [
@@ -167,16 +283,28 @@ class DailyWebhookController extends Controller
 
     private function handleRecordingStarted(SessionRecording $recording, array $payload): void
     {
+        $recordingId = (string) ($payload['recording_id'] ?? $payload['recordingId'] ?? '');
+        $recordingInstanceId = $this->extractInstanceId($payload);
+
         $recording->update([
             'provider_name' => 'daily',
-            'daily_recording_id' => $payload['recording_id'] ?? $recording->daily_recording_id,
-            'daily_recording_instance_id' => $payload['instanceId'] ?? $recording->daily_recording_instance_id,
+            'daily_recording_id' => $recordingId !== '' ? $recordingId : $recording->daily_recording_id,
+            'daily_recording_instance_id' => $recordingInstanceId ?: $recording->daily_recording_instance_id,
             'provider_metadata' => $this->mergeProviderMetadata($recording, [
                 'daily' => [
                     'recording' => [
                         'status' => 'active',
                         'started_at' => now()->toISOString(),
-                        'event_payload' => $payload,
+                        'event_payload' => Arr::only($payload, [
+                            'recording_id',
+                            'recordingId',
+                            'instance_id',
+                            'instanceId',
+                            'room_name',
+                            'duration',
+                            'status',
+                            'action',
+                        ]),
                     ],
                 ],
             ]),
@@ -185,14 +313,23 @@ class DailyWebhookController extends Controller
 
     private function handleRecordingReady(SessionRecording $recording, array $payload): void
     {
-        $recordingId = (string) ($payload['recording_id'] ?? $recording->daily_recording_id ?? '');
-        $accessLinkResponse = $recordingId !== '' ? $this->dailyService->getRecordingAccessLink($recordingId) : [];
-        $downloadLink = $accessLinkResponse['download_link'] ?? $accessLinkResponse['link'] ?? null;
+        $recordingId = (string) ($payload['recording_id'] ?? $payload['recordingId'] ?? $recording->daily_recording_id ?? '');
+        $recordingInstanceId = $this->extractInstanceId($payload);
+
+        try {
+            $accessLinkResponse = $recordingId !== '' ? $this->dailyService->getRecordingAccessLink($recordingId) : [];
+        } catch (\Throwable) {
+            $accessLinkResponse = [];
+        }
+
+        $downloadLink = $accessLinkResponse['download_link']
+            ?? $accessLinkResponse['link']
+            ?? $this->extractRecordingAccessLink($payload);
 
         $recording->update([
             'provider_name' => 'daily',
             'daily_recording_id' => $recordingId !== '' ? $recordingId : $recording->daily_recording_id,
-            'daily_recording_instance_id' => $payload['instanceId'] ?? $recording->daily_recording_instance_id,
+            'daily_recording_instance_id' => $recordingInstanceId ?: $recording->daily_recording_instance_id,
             'recording_url' => is_string($downloadLink) ? $downloadLink : $recording->recording_url,
             'duration_seconds' => $payload['duration'] ?? $recording->duration_seconds,
             'provider_metadata' => $this->mergeProviderMetadata($recording, [
@@ -202,7 +339,17 @@ class DailyWebhookController extends Controller
                         'completed_at' => now()->toISOString(),
                         'access_link' => $downloadLink,
                         'access_link_expires' => $accessLinkResponse['expires'] ?? null,
-                        'event_payload' => $payload,
+                        'event_payload' => Arr::only($payload, [
+                            'recording_id',
+                            'recordingId',
+                            'instance_id',
+                            'instanceId',
+                            'room_name',
+                            'duration',
+                            'status',
+                            'type',
+                            's3_key',
+                        ]),
                     ],
                 ],
             ]),
@@ -211,10 +358,13 @@ class DailyWebhookController extends Controller
 
     private function handleRecordingError(SessionRecording $recording, array $payload): void
     {
+        $recordingId = (string) ($payload['recording_id'] ?? $payload['recordingId'] ?? '');
+        $recordingInstanceId = $this->extractInstanceId($payload);
+
         $recording->update([
             'provider_name' => 'daily',
-            'daily_recording_id' => $payload['recording_id'] ?? $recording->daily_recording_id,
-            'daily_recording_instance_id' => $payload['instanceId'] ?? $recording->daily_recording_instance_id,
+            'daily_recording_id' => $recordingId !== '' ? $recordingId : $recording->daily_recording_id,
+            'daily_recording_instance_id' => $recordingInstanceId ?: $recording->daily_recording_instance_id,
             'provider_metadata' => $this->mergeProviderMetadata($recording, [
                 'daily' => [
                     'recording' => [
@@ -227,36 +377,128 @@ class DailyWebhookController extends Controller
         ]);
     }
 
+    private function extractPayload(array $event): array
+{
+    $payload = $event['payload'] ?? null;
+
+    if (!is_array($payload)) {
+        return $event;
+    }
+
+    foreach (['id', 'type', 'room_name', 'room_id', 'instance_id', 'instanceId', 'mtg_session_id'] as $key) {
+        if (!array_key_exists($key, $payload) && array_key_exists($key, $event)) {
+            $payload[$key] = $event[$key];
+        }
+    }
+
+    return $payload;
+}
+
     private function ensureRecording(CoachingSession $session): SessionRecording
     {
-        return SessionRecording::firstOrCreate(
-            ['session_id' => $session->id],
-            [
-                'provider_name' => 'daily',
-                'transcription_status' => 'inactive',
-                'privacy_settings' => [
-                    'recording_enabled' => false,
-                    'transcription_consent' => 'none',
-                ],
-            ]
-        );
-    }
-
-    private function extractPayload(array $event): array
-    {
-        $payload = $event['payload'] ?? [];
-
-        if (is_array($payload) && isset($payload['payload']) && is_array($payload['payload'])) {
-            return $payload['payload'];
+        if ($session->recording) {
+            return $session->recording;
         }
 
-        return is_array($payload) ? $payload : [];
+        return $session->recording()->create([
+            'provider_name' => 'daily',
+            'transcription_status' => 'inactive',
+        ]);
     }
 
-    private function mergeProviderMetadata(SessionRecording $recording, array $extra): array
+    private function mergeProviderMetadata(SessionRecording $recording, array $patch): array
     {
-        $current = $recording->provider_metadata ?? [];
+        $existing = $recording->provider_metadata;
 
-        return array_replace_recursive(is_array($current) ? $current : [], $extra);
+        if (!is_array($existing)) {
+            $existing = [];
+        }
+
+        return array_replace_recursive($existing, $patch);
     }
+
+    private function extractInstanceId(array $payload): ?string
+{
+    foreach ([
+        $payload['instance_id'] ?? null,
+        $payload['instanceId'] ?? null,
+        data_get($payload, 'transcript.instance_id'),
+        data_get($payload, 'transcript.instanceId'),
+        data_get($payload, 'recording.instance_id'),
+        data_get($payload, 'recording.instanceId'),
+        data_get($payload, 'info.instance_id'),
+        data_get($payload, 'info.instanceId'),
+    ] as $value) {
+        if (is_string($value) && trim($value) !== '') {
+            return trim($value);
+        }
+    }
+
+    return null;
+}
+
+private function extractTranscriptId(array $payload): ?string
+{
+    foreach ([
+        $payload['id'] ?? null,
+        $payload['transcript_id'] ?? null,
+        $payload['transcriptId'] ?? null,
+        data_get($payload, 'transcript.id'),
+        data_get($payload, 'transcript.transcript_id'),
+        data_get($payload, 'transcript.transcriptId'),
+        data_get($payload, 'data.id'),
+        data_get($payload, 'info.id'),
+    ] as $value) {
+        if (is_string($value) && trim($value) !== '') {
+            return trim($value);
+        }
+    }
+
+    return null;
+}
+
+private function extractTranscriptAccessLink(array $payload): ?string
+{
+    foreach ([
+        $payload['access_link'] ?? null,
+        $payload['download_link'] ?? null,
+        $payload['link'] ?? null,
+        $payload['url'] ?? null,
+        data_get($payload, 'out_params.access_link'),
+        data_get($payload, 'out_params.download_link'),
+        data_get($payload, 'out_params.link'),
+        data_get($payload, 'transcript.access_link'),
+        data_get($payload, 'transcript.download_link'),
+        data_get($payload, 'transcript.link'),
+        data_get($payload, 'download.link'),
+    ] as $value) {
+        if (is_string($value) && trim($value) !== '') {
+            return trim($value);
+        }
+    }
+
+    return null;
+}
+
+private function extractRecordingAccessLink(array $payload): ?string
+{
+    foreach ([
+        $payload['access_link'] ?? null,
+        $payload['download_link'] ?? null,
+        $payload['link'] ?? null,
+        $payload['url'] ?? null,
+        data_get($payload, 'recording.access_link'),
+        data_get($payload, 'recording.download_link'),
+        data_get($payload, 'recording.link'),
+        data_get($payload, 'out_params.access_link'),
+        data_get($payload, 'out_params.download_link'),
+        data_get($payload, 'out_params.link'),
+    ] as $value) {
+        if (is_string($value) && trim($value) !== '') {
+            return trim($value);
+        }
+    }
+
+    return null;
+}
 }

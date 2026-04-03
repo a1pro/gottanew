@@ -17,7 +17,7 @@ class DailyRestApiService
     public function usingFakeRoom(): bool
     {
         return app()->environment('local')
-            && filter_var((string) env('DAILY_USE_FAKE_ROOM', true), FILTER_VALIDATE_BOOLEAN);
+            && filter_var((string) env('DAILY_USE_FAKE_ROOM', false), FILTER_VALIDATE_BOOLEAN);
     }
 
     public function createRoom(array $overrides = []): array
@@ -34,7 +34,7 @@ class DailyRestApiService
 
         $payload = array_replace_recursive([
             'name' => 'session_' . Str::lower((string) Str::uuid()),
-            'privacy' => 'public',
+            'privacy' => 'private',
             'properties' => [
                 'max_participants' => 2,
                 'enable_chat' => true,
@@ -42,6 +42,7 @@ class DailyRestApiService
                 'start_video_off' => false,
                 'start_audio_off' => false,
                 'enable_recording' => 'cloud',
+                'enable_transcription_storage' => (bool) config('services.daily.enable_transcription_storage', true),
             ],
         ], $overrides);
 
@@ -72,16 +73,24 @@ class DailyRestApiService
 
     public function startRecording(string $roomName, array $payload = []): array
     {
-        return $this->request('POST', '/rooms/' . rawurlencode($roomName) . '/recordings/start', array_merge([
-            'type' => 'cloud',
-        ], $payload));
+        return $this->request(
+            'POST',
+            '/rooms/' . rawurlencode($roomName) . '/recordings/start',
+            array_merge([
+                'type' => 'cloud',
+            ], $payload)
+        );
     }
 
     public function stopRecording(string $roomName, array $payload = []): array
     {
-        return $this->request('POST', '/rooms/' . rawurlencode($roomName) . '/recordings/stop', array_merge([
-            'type' => 'cloud',
-        ], $payload));
+        return $this->request(
+            'POST',
+            '/rooms/' . rawurlencode($roomName) . '/recordings/stop',
+            array_merge([
+                'type' => 'cloud',
+            ], $payload)
+        );
     }
 
     public function startTranscription(string $roomName, array $payload = []): array
@@ -93,19 +102,108 @@ class DailyRestApiService
             'includeRawResponse' => true,
         ], static fn ($value) => $value !== null && $value !== '');
 
-        return $this->request('POST', '/rooms/' . rawurlencode($roomName) . '/transcription/start', array_merge($defaultPayload, $payload));
+        return $this->request(
+            'POST',
+            '/rooms/' . rawurlencode($roomName) . '/transcription/start',
+            array_merge($defaultPayload, $payload)
+        );
     }
 
     public function stopTranscription(string $roomName, array $payload = []): array
     {
-        return $this->request('POST', '/rooms/' . rawurlencode($roomName) . '/transcription/stop', $payload);
+        return $this->request(
+            'POST',
+            '/rooms/' . rawurlencode($roomName) . '/transcription/stop',
+            empty($payload) ? new \stdClass() : $payload
+        );
+    }
+
+    public function getRoom(string $roomName): array
+    {
+        return $this->request('GET', '/rooms/' . rawurlencode($roomName));
+    }
+
+    public function listWebhooks(): array
+    {
+        $response = $this->request('GET', '/webhooks');
+
+        if (isset($response['data']) && is_array($response['data'])) {
+            return $response['data'];
+        }
+
+        if (isset($response['webhooks']) && is_array($response['webhooks'])) {
+            return $response['webhooks'];
+        }
+
+        return array_values(array_filter($response, static fn ($item) => is_array($item)));
+    }
+
+    public function getWebhook(string $uuid): array
+    {
+        return $this->request('GET', '/webhooks/' . rawurlencode($uuid));
+    }
+
+    public function createWebhook(string $url, array $eventTypes, ?string $hmac = null, ?string $retryType = null): array
+    {
+        $url = trim((string) $url);
+
+        if ($url === '') {
+            throw new \InvalidArgumentException('Webhook URL is required.');
+        }
+
+        $retryType = trim((string) ($retryType ?: config('services.daily.webhook_retry_type', 'circuit-breaker')));
+
+        $payload = array_filter([
+            'url' => $url,
+            'eventTypes' => array_values(array_unique(array_filter(
+                $eventTypes,
+                static fn ($value) => is_string($value) && trim($value) !== ''
+            ))),
+            'retryType' => $retryType !== '' ? $retryType : null,
+            'hmac' => is_string($hmac) && trim($hmac) !== '' ? trim($hmac) : null,
+        ], static fn ($value) => $value !== null);
+
+        return $this->request('POST', '/webhooks', $payload);
+    }
+
+    public function updateWebhook(string $uuid, string $url, array $eventTypes, ?string $hmac = null, ?string $retryType = null): array
+    {
+        $uuid = trim((string) $uuid);
+        $url = trim((string) $url);
+
+        if ($uuid === '') {
+            throw new \InvalidArgumentException('Webhook UUID is required.');
+        }
+
+        if ($url === '') {
+            throw new \InvalidArgumentException('Webhook URL is required.');
+        }
+
+        $retryType = trim((string) ($retryType ?: config('services.daily.webhook_retry_type', 'circuit-breaker')));
+
+        $payload = array_filter([
+            'url' => $url,
+            'eventTypes' => array_values(array_unique(array_filter(
+                $eventTypes,
+                static fn ($value) => is_string($value) && trim($value) !== ''
+            ))),
+            'retryType' => $retryType !== '' ? $retryType : null,
+            'hmac' => is_string($hmac) && trim($hmac) !== '' ? trim($hmac) : null,
+        ], static fn ($value) => $value !== null);
+
+        return $this->request('POST', '/webhooks/' . rawurlencode($uuid), $payload);
     }
 
     public function getRecordingAccessLink(string $recordingId, int $validForSeconds = 3600): array
     {
-        return $this->request('GET', '/recordings/' . rawurlencode($recordingId) . '/access-link', [], [
-            'valid_for_secs' => $validForSeconds,
-        ]);
+        return $this->request(
+            'GET',
+            '/recordings/' . rawurlencode($recordingId) . '/access-link',
+            [],
+            [
+                'valid_for_secs' => $validForSeconds,
+            ]
+        );
     }
 
     public function getTranscriptAccessLink(string $transcriptId): array
@@ -172,7 +270,70 @@ class DailyRestApiService
         return implode("\n", $output);
     }
 
-    private function request(string $method, string $path, array $body = [], array $query = []): array
+    public function resolveTranscriptText(?string $transcriptId, ?string $fallbackLink = null): ?string
+    {
+        $transcriptId = is_string($transcriptId) ? trim($transcriptId) : '';
+        $link = is_string($fallbackLink) ? trim($fallbackLink) : '';
+
+        if ($transcriptId !== '') {
+            try {
+                $accessLinkResponse = $this->getTranscriptAccessLink($transcriptId);
+                $link = $accessLinkResponse['link'] ?? $accessLinkResponse['download_link'] ?? $link;
+            } catch (\Throwable) {
+                // fall back to existing link
+            }
+        }
+
+        $text = $this->fetchTextFromAccessLink($link !== '' ? $link : null);
+
+        if ($text) {
+            return $text;
+        }
+
+        if ($transcriptId === '') {
+            return null;
+        }
+
+        try {
+            $transcript = $this->getTranscript($transcriptId);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        foreach ([
+            $transcript['text'] ?? null,
+            $transcript['transcript'] ?? null,
+            data_get($transcript, 'result.text'),
+            data_get($transcript, 'data.text'),
+        ] as $candidate) {
+            if (is_string($candidate) && trim($candidate) !== '') {
+                return trim($candidate);
+            }
+        }
+
+        return null;
+    }
+
+    public function resolveRecordingDownloadLink(?string $recordingId, int $validForSeconds = 3600): ?string
+    {
+        $recordingId = is_string($recordingId) ? trim($recordingId) : '';
+
+        if ($recordingId === '') {
+            return null;
+        }
+
+        try {
+            $accessLinkResponse = $this->getRecordingAccessLink($recordingId, $validForSeconds);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        $link = $accessLinkResponse['download_link'] ?? $accessLinkResponse['link'] ?? null;
+
+        return is_string($link) && trim($link) !== '' ? trim($link) : null;
+    }
+
+    private function request(string $method, string $path, array|\stdClass $body = [], array $query = []): array
     {
         $apiKey = config('services.daily.api_key');
 
@@ -185,7 +346,9 @@ class DailyRestApiService
 
         $response = match (strtoupper($method)) {
             'GET' => $http->get($url, $query),
-            'POST' => $http->post($url . (empty($query) ? '' : '?' . http_build_query($query)), $body),
+            'POST' => $http->send('POST', $url . (empty($query) ? '' : '?' . http_build_query($query)), [
+                'json' => $body,
+            ]),
             default => throw new \InvalidArgumentException('Unsupported Daily API method: ' . $method),
         };
 
