@@ -4,26 +4,30 @@ namespace App\Services\Video;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+
 class DailyWebhookValidator
 {
     public function isValid(Request $request): bool
     {
-
-        Log::info('Daily webhook validator hard bypass hit', [
-            'app_env' => app()->environment(),
-            'url' => $request->fullUrl(),
-            'has_signature' => filled($request->header('X-Webhook-Signature')),
-            'has_timestamp' => filled($request->header('X-Webhook-Timestamp')),
-            'raw_body' => $request->getContent(),
-        ]);
-
         if ($this->shouldBypassValidation()) {
+            Log::info('Daily webhook signature validation bypassed', [
+                'app_env' => app()->environment(),
+                'url' => $request->fullUrl(),
+                'has_signature' => filled($request->header('X-Webhook-Signature')),
+                'has_timestamp' => filled($request->header('X-Webhook-Timestamp')),
+            ]);
+
             return true;
         }
 
-        $configuredSecret = (string) config('services.daily.webhook_hmac', '');
+        $configuredSecret = trim((string) config('services.daily.webhook_hmac', ''));
 
         if ($configuredSecret === '') {
+            Log::warning('Daily webhook HMAC not configured; accepting request without signature validation.', [
+                'app_env' => app()->environment(),
+                'url' => $request->fullUrl(),
+            ]);
+
             return true;
         }
 
@@ -36,13 +40,29 @@ class DailyWebhookValidator
 
         $maxAge = max(0, (int) config('services.daily.webhook_max_age_seconds', 300));
         if ($maxAge > 0) {
-            $timestampInt = ctype_digit($timestamp) ? (int) $timestamp : null;
+            if (!ctype_digit($timestamp)) {
+                Log::warning('Daily webhook rejected: timestamp is not numeric.', [
+                    'timestamp' => $timestamp,
+                ]);
 
-            if ($timestampInt === null) {
                 return false;
             }
 
+            $timestampInt = (int) $timestamp;
+
+            // Daily sends timestamp in milliseconds in live requests.
+            if (strlen($timestamp) >= 13) {
+                $timestampInt = (int) floor($timestampInt / 1000);
+            }
+
             if (abs(time() - $timestampInt) > $maxAge) {
+                Log::warning('Daily webhook rejected due to timestamp age mismatch.', [
+                    'received_timestamp_raw' => $timestamp,
+                    'normalized_timestamp' => $timestampInt,
+                    'server_time' => time(),
+                    'max_age' => $maxAge,
+                ]);
+
                 return false;
             }
         }
@@ -61,6 +81,11 @@ class DailyWebhookValidator
                 }
             }
         }
+
+        Log::warning('Daily webhook signature mismatch after trying all candidates.', [
+            'has_signature' => $signature !== '',
+            'timestamp' => $timestamp,
+        ]);
 
         return false;
     }
@@ -109,7 +134,10 @@ class DailyWebhookValidator
             $secrets[] = $decoded;
         }
 
-        return array_values(array_unique(array_filter($secrets, static fn ($value) => is_string($value) && $value !== '')));
+        return array_values(array_unique(array_filter(
+            $secrets,
+            static fn ($value) => is_string($value) && $value !== ''
+        )));
     }
 
     private function candidateDigests(string $secret, string $payload): array
