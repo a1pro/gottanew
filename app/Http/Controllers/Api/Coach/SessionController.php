@@ -22,8 +22,7 @@ class SessionController extends BaseController
       return $coach;
   }
 
-  private function getAuthorizedSession(Request $request, $id):
-CoachingSession
+  private function getAuthorizedSession(Request $request, $id):CoachingSession
   {
       $coach = $this->getCoach($request);
 
@@ -165,24 +164,25 @@ $includeStateLogs = false): array
           'is_intro_session' => (bool) $session->is_intro_session,
           'coach_notes' => $session->coach_notes,
           'recording' => $recording ? [
-              'transcription_status' => $recording->transcription_status,
-              'transcript' => $recording->transcript,
-              'transcript_available' => filled($recording->transcript),
-              'transcript_preview' => filled($recording->transcript) ?
-Str::limit((string) $recording->transcript, 220) : null,
-              'transcript_word_count' => str_word_count((string) $recording->transcript),
-              'summary_ready' => filled($recording->post_session_summary) ||
-filled($recording->ai_summary) || filled($recording->pre_session_summary),
-              'ai_summary' => $recording->ai_summary,
-              'pre_session_summary' => $recording->pre_session_summary,
-              'post_session_summary' => $recording->post_session_summary,
-              'next_actions' => is_array($recording->next_actions) ?
-$recording->next_actions : [],
-              'key_topics' => is_array($recording->key_topics) ? $recording->key_topics : [],
-
-               'privacy_settings' => $recording->privacy_settings,
-               'feedback_rating' => $recording->feedback_rating,
-           ] : null,
+            'transcription_status' => $recording->transcription_status,
+            'transcript' => $recording->transcript,
+            'transcript_available' => filled($recording->transcript),
+            'transcript_preview' => filled($recording->transcript)
+                ? Str::limit((string) $recording->transcript, 220)
+                : null,
+            'transcript_word_count' => str_word_count((string) $recording->transcript),
+            'summary_ready' => filled($recording->post_session_summary)
+                || filled($recording->ai_summary)
+                || filled($recording->pre_session_summary),
+            'ai_summary' => $recording->ai_summary,
+            'pre_session_summary' => $recording->pre_session_summary,
+            'post_session_summary' => $recording->post_session_summary,
+            'next_actions' => is_array($recording->next_actions) ? $recording->next_actions : [],
+            'key_topics' => is_array($recording->key_topics) ? $recording->key_topics : [],
+            'recording_url' => $recording->recording_url,
+            'privacy_settings' => $recording->privacy_settings,
+            'feedback_rating' => $recording->feedback_rating,
+        ] : null,
            'source_request' => $introRequest ? [
                'id' => (int) $introRequest->id,
                'status' => $introRequest->status,
