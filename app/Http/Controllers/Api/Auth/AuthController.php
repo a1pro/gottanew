@@ -292,11 +292,11 @@ class AuthController extends BaseController
 
         PasswordResetToken::where('email', $validated['email'])->delete();
 
-        $plainToken = Str::random(64);
-        
+        $plainToken = hash('sha256', Str::random(64));
+
         PasswordResetToken::create([
             'email' => $validated['email'],
-            'token' => hash('sha256',$plainToken),
+            'token' => $plainToken,
             'created_at' => now(),
         ]);
        

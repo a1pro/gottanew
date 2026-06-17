@@ -16,8 +16,7 @@
                             <h2 style="margin:0 0 16px 0;font-size:24px;line-height:1.3;color:#111827;">
                                 Reset Your Password
                             </h2>
-
-```
+                            
                         <p style="margin:0 0 14px 0;font-size:15px;line-height:1.7;color:#374151;">
                             We received a request to reset the password for your account.
                         </p>
@@ -29,21 +28,13 @@
                         <table cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px 0;">
                             <tr>
                                 <td align="center" style="border-radius:8px;" bgcolor="#2563eb">
-                                    <a href="{{ $url }}"
+                                    <a href="{!! $url !!}"
                                        style="display:inline-block;padding:12px 20px;font-size:15px;font-weight:bold;color:#ffffff;text-decoration:none;border-radius:8px;background:#2563eb;">
                                         Reset Password
                                     </a>
                                 </td>
                             </tr>
                         </table>
-
-                        <p style="margin:0 0 10px 0;font-size:14px;line-height:1.7;color:#6b7280;">
-                            If the button does not work, copy and paste this link into your browser:
-                        </p>
-
-                        <p style="margin:0 0 18px 0;font-size:14px;line-height:1.7;word-break:break-all;">
-                            <a href="{{ $url }}" style="color:#2563eb;text-decoration:none;">{{ $url }}</a>
-                        </p>
 
                         <p style="margin:0 0 12px 0;font-size:13px;line-height:1.7;color:#9ca3af;">
                             This password reset link will expire in 60 minutes.
@@ -62,7 +53,5 @@
         </td>
     </tr>
 </table>
-```
-
 </body>
 </html>
