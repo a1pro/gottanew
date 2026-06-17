@@ -322,4 +322,6 @@ class AuthController extends BaseController
             'coach_independence_acknowledged_at' => optional($profile->coach_independence_acknowledged_at)?->toISOString(),
         ];
     }
+
+    
 }

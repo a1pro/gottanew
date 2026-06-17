@@ -4,6 +4,17 @@ namespace App\Models\Finance;
 
 use Illuminate\Database\Eloquent\Model;
 
+/**
+ * @property int $id
+ * @property string $name
+ * @property int $coin_amount
+ * @property string $price_amount
+ * @property string $price_currency
+ * @property int $bonus_coins
+ * @property bool $is_popular
+ * @property bool $is_active
+ * @property int $total_coins
+ */
 class CoinPackage extends Model
 {
     protected $fillable = [
@@ -24,8 +35,15 @@ class CoinPackage extends Model
         'is_active' => 'boolean',
     ];
 
+    protected $appends = [
+        'total_coins',
+    ];
     public function getTotalCoinsAttribute(): int
     {
-        return (int) $this->coin_amount + (int) $this->bonus_coins;
+        return $this->coin_amount + $this->bonus_coins;
+    }
+    public function scopeActive($query)
+    {
+        return $query->where('is_active', true);
     }
 }

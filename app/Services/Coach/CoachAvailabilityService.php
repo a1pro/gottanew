@@ -10,6 +10,7 @@ use Illuminate\Support\Collection;
 
 class CoachAvailabilityService
 {
+    private const FIXED_DURATION_MINUTES = 15;
     public function publicAvailabilityPayload(Coach $coach): array
     {
         return [
@@ -141,14 +142,14 @@ class CoachAvailabilityService
         Coach $coach,
         CarbonImmutable $scheduledStart,
         string $viewerTimezone,
-        int $durationMinutes = 15
+        int $durationMinutes = self::FIXED_DURATION_MINUTES
     ): ?string {
-        if ($durationMinutes !== 15) {
+        if ($durationMinutes !== self::FIXED_DURATION_MINUTES) {
             return 'Only 15-minute sessions are allowed in the MVP.';
         }
 
-        if (((int) $scheduledStart->minute % 15) !== 0 || (int) $scheduledStart->second !== 0) {
-            return 'Please choose a 15-minute slot using :00, :15, :30, or :45.';
+        if (((int) $scheduledStart->minute % self::FIXED_DURATION_MINUTES) !== 0 || (int) $scheduledStart->second !== 0) {
+            return 'Please choose a ' . self::FIXED_DURATION_MINUTES . '-minute slot using :00, :15, :30, or :45.';
         }
 
         $viewerTimezone = $this->normalizeTimezone($viewerTimezone, 'UTC');
@@ -160,7 +161,7 @@ class CoachAvailabilityService
                 return CarbonImmutable::parse($slot['starts_at'])->setTimezone('UTC')->timestamp === $requestedTimestamp;
             });
 
-        return $matchingSlot ? null : 'Selected time is outside the coach\'s current 15-minute availability.';
+        return $matchingSlot ? null : 'Selected time is outside the coach\'s current ' . self::FIXED_DURATION_MINUTES . ' availability.';
     }
 
     private function loadBookedSessionsForWindow(

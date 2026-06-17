@@ -42,12 +42,12 @@ class ConnectionRequestController extends BaseController
            'rejected' => (clone $query)->where('status', 'rejected')->count(),
       ];
 
-      $requests = $query->paginate((int) $request->get('per_page', 10));
+        $requests = $query->paginate((int) $request->get('per_page', 10));
 
-      $requests->setCollection(
+        $requests->setCollection(
           $requests->getCollection()->map(fn (SessionRequest $sessionRequest)
-=> $this->serializeRequest($sessionRequest))
-      );
+          => $this->serializeRequest($sessionRequest))
+        );
 
       return $this->success([
           'data' => $requests,
@@ -67,8 +67,7 @@ class ConnectionRequestController extends BaseController
           'preferred_coach_id' => ['nullable', 'exists:coaches,id'],
           'goal_summary' => ['nullable', 'string', 'max:255'],
           'request_notes' => ['nullable', 'string', 'max:3000'],
-          'viewer_timezone' => ['nullable', 'string', 'max:100', new
-TimezoneIdentifier()],
+          'viewer_timezone' => ['nullable', 'string', 'max:100', new TimezoneIdentifier()],
       ]);
 
       $openRequestExists = SessionRequest::query()
@@ -77,12 +76,11 @@ TimezoneIdentifier()],
           ->exists();
 
       if ($openRequestExists) {
-          return $this->error('You already have a pending free intro
-request.', 422);
+          return $this->error('You already have a pending free intro request.', 422);
       }
 
       $preferredCoach = null;
-      if (!empty($validated['preferred_coach_id'])) {
+      if (filled($validated['preferred_coach_id'])) {
           $preferredCoach = Coach::query()->findOrFail($validated['preferred_coach_id']);
       }
 
@@ -92,15 +90,19 @@ request.', 422);
           'status' => 'pending',
           'goal_summary' => $validated['goal_summary'] ?? null,
           'request_notes' => $validated['request_notes'] ?? null,
-          'viewer_timezone' =>
-Timezone::normalize($validated['viewer_timezone'] ?? 'UTC', 'UTC'),
+          'viewer_timezone' => Timezone::normalize($validated['viewer_timezone'] ?? 'UTC', 'UTC'),
       ]);
 
       $this->notificationService->sessionRequestSubmitted($sessionRequest->load(['client', 'preferredCoach']));
 
       return $this->success(
-          $this->serializeRequest($sessionRequest->load(['preferredCoach',
-'assignedCoach', 'approvedSession'])),
+          $this->serializeRequest($sessionRequest->load(
+            [ 
+                'preferredCoach', 
+                'assignedCoach',
+                'approvedSession'
+             ])),
+             
           'Free intro request submitted successfully.',
       );
   }
