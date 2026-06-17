@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Auth;
 
 use App\Http\Controllers\Api\BaseController;
+use App\Mail\ResetPasswordMail;
 use App\Models\Coach\Coach;
 use App\Models\Coach\PendingCoachApplication;
 use App\Models\Core\Profile;
@@ -10,8 +11,11 @@ use App\Models\Core\UserRole;
 use App\Models\Finance\UserWallet;
 use App\Models\Session\CoachingSession;
 use App\Models\Session\SessionRecording;
+use App\Models\Session\PasswordResetToken;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 
@@ -276,6 +280,70 @@ class AuthController extends BaseController
 
         return response()->json([
             'message' => 'Password set successfully',
+        ]);
+    }
+
+    public function forgotPassword(Request $request)
+    {
+        
+        $validated = $request->validate([
+            'email' => ['required', 'email', 'exists:users,email']
+        ]);
+
+        PasswordResetToken::where('email', $validated['email'])->delete();
+
+        $plainToken = Str::random(64);
+        
+        PasswordResetToken::create([
+            'email' => $validated['email'],
+            'token' => hash('sha256',$plainToken),
+            'created_at' => now(),
+        ]);
+       
+        Mail::to($validated['email'])
+            ->send(new ResetPasswordMail(
+                $validated['email'],
+                $plainToken
+            ));
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Password reset link sent successfully.'
+        ]);
+    }
+
+
+    public function resetPassword(Request $request)
+    {
+        $request->validate([
+            'email' => 'required|email',
+            'token' => 'required',
+            'password' => 'required|min:6|confirmed',
+        ]);
+
+        $record = PasswordResetToken::where('email', $request->email)->first();
+
+        if (!$record) {
+            return response()->json(['message' => 'Invalid or expired token'], 400);
+        }
+      
+        if (trim($request->token) !== trim($record->token)) {
+            return response()->json(['message' => 'Invalid token'], 400);
+        }
+
+        $user = User::where('email', $request->email)->first();
+
+        if (!$user) {
+            return response()->json(['message' => 'User not found'], 404);
+        }
+
+        $user->password = Hash::make($request->password);
+        $user->save();
+
+        PasswordResetToken::where('email', $request->email)->delete();
+
+        return response()->json([
+            'message' => 'Password reset successful'
         ]);
     }
 
