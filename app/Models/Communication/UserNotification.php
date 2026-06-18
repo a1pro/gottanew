@@ -60,5 +60,3 @@ class UserNotification extends Model
         return $this->hasOne(MessageOutbox::class, 'user_notification_id');
     }
 }
-
-`   
