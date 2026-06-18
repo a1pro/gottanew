@@ -4,6 +4,7 @@
 namespace App\Http\Requests\Shared;
 
 use Illuminate\Foundation\Http\FormRequest;
+use App\Models\User;
 
 class CreateSessionRequest extends FormRequest
 {
@@ -16,7 +17,7 @@ class CreateSessionRequest extends FormRequest
     {
         return [
             'coach_id' => ['required', 'exists:users,id'],
-            'scheduled_at' => ['required', 'date', 'after:now'],
+            'created_at' => ['required', 'date', 'after:now'],
             'notes' => ['nullable', 'string', 'max:500'],
         ];
     }
@@ -26,8 +27,8 @@ class CreateSessionRequest extends FormRequest
         return [
             'coach_id.required' => 'Please select a coach',
             'coach_id.exists' => 'Selected coach not found',
-            'scheduled_at.required' => 'Please select a date and time',
-            'scheduled_at.after' => 'Session must be scheduled in the future',
+            'created_at.required' => 'Please select a date and time',
+            'created_at.after' => 'Session must be scheduled in the future',
         ];
     }
 
@@ -38,7 +39,7 @@ class CreateSessionRequest extends FormRequest
     {
         $validator->after(function ($validator) {
             // Check if coach is actually a coach
-            $coach = \App\Models\User::withRole('coach')->find($this->coach_id);
+            $coach = User::withRole('coach')->find($this->coach_id);
             
             if (!$coach) {
                 $validator->errors()->add('coach_id', 'Selected user is not a coach');

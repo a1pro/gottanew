@@ -3,6 +3,11 @@
 namespace App\Models\Communication;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Models\Communication\EmailOutbox;
+use App\Models\User;    
+use App\Models\Session\CoachingSession;  
+use App\Models\Finance\CoachPayout;  
+use App\Models\Communication\MessageOutbox;  
 
 class UserNotification extends Model
 {
@@ -32,27 +37,28 @@ class UserNotification extends Model
 
     public function user()
     {
-        return $this->belongsTo(\App\Models\User::class, 'user_id');
+        return $this->belongsTo(User::class, 'user_id');
     }
 
     public function session()
     {
-        return $this->belongsTo(\App\Models\Session\CoachingSession::class, 'session_id');
+        return $this->belongsTo(CoachingSession::class, 'session_id');
     }
 
     public function coachPayout()
     {
-        return $this->belongsTo(\App\Models\Finance\CoachPayout::class, 'coach_payout_id');
+        return $this->belongsTo(CoachPayout::class, 'coach_payout_id');
     }
 
     public function emailOutboxes()
     {
-        return $this->hasMany(\App\Models\Communication\EmailOutbox::class, 'user_notification_id');
+         return $this->hasOne(EmailOutbox::class, 'user_notification_id');
     }
 
     public function messageOutboxes()
     {
-        return $this->hasMany(\App\Models\Communication\MessageOutbox::class, 'user_notification_id');
+        return $this->hasOne(MessageOutbox::class, 'user_notification_id');
     }
 }
 
+`   

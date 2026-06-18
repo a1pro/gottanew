@@ -19,7 +19,7 @@ class AdminNotificationController extends BaseController
         $query = UserNotification::query()
             ->with([
                 'user:id,name,email',
-                'session:id,status,scheduled_at',
+                'session:id,status,created_at',
                 'emailOutboxes:id,user_notification_id,recipient_email,status,attempts,last_error,sent_at,scheduled_for,created_at',
                 'messageOutboxes:id,user_notification_id,channel,recipient_phone,status,provider_status,provider_message_id,attempts,last_error,sent_at,delivered_at,read_at,created_at',
             ])
@@ -85,8 +85,8 @@ class AdminNotificationController extends BaseController
 
     private function serialize(UserNotification $notification): array
     {
-        $emailOutbox = $notification->emailOutboxes->sortByDesc('id')->first();
-        $messageOutbox = $notification->messageOutboxes->sortByDesc('id')->first();
+        $emailOutbox = $notification->emailOutboxes;
+        $messageOutbox = $notification->messageOutboxes;
 
         return [
             'id' => $notification->id,
@@ -104,7 +104,7 @@ class AdminNotificationController extends BaseController
             'session' => $notification->session ? [
                 'id' => $notification->session->id,
                 'status' => $notification->session->status,
-                'scheduled_at' => optional($notification->session->scheduled_at)->toISOString(),
+                'created_at' => optional($notification->session->created_at)->toISOString(),
             ] : null,
             'metadata' => $notification->metadata ?? [],
             'is_read' => (bool) $notification->is_read,

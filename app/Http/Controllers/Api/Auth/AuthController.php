@@ -64,30 +64,84 @@ class AuthController extends BaseController
         ], 'User registered');
     }
 
+    // public function login(Request $request)
+    // {
+    //     $user = User::where('email', $request->email)->first();
+
+    //     if (!$user || !Hash::check($request->password, $user->password)) {
+    //         return response()->json(['message' => 'Invalid credentials'], 401);
+    //     }
+
+    //     $token = $user->createToken('auth_token')->plainTextToken;
+    //     $role = UserRole::where('user_id', $user->id)->value('role');
+
+    //     return response()->json([
+    //         'data' => [
+    //             'token' => $token,
+    //             'user' => [
+    //                 'id' => $user->id,
+    //                 'name' => $user->name,
+    //                 'email' => $user->email,
+    //                 'role' => $role,
+    //             ],
+    //         ],
+    //     ]);
+    // }
     public function login(Request $request)
     {
+        $request->validate([
+            'email' => 'required|email',
+            'password' => 'required|string',
+        ]);
+
+        // 1. Check user
         $user = User::where('email', $request->email)->first();
 
-        if (!$user || !Hash::check($request->password, $user->password)) {
-            return response()->json(['message' => 'Invalid credentials'], 401);
+        // 2. If user exists → normal login
+        if ($user) {
+
+            if (!Hash::check($request->password, $user->password)) {
+                return response()->json(['message' => 'Invalid credentials'], 401);
+            }
+
+            $token = $user->createToken('auth_token')->plainTextToken;
+            $role = UserRole::where('user_id', $user->id)->value('role');
+
+            return response()->json([
+                'data' => [
+                    'token' => $token,
+                    'user' => [
+                        'id' => $user->id,
+                        'name' => $user->name,
+                        'email' => $user->email,
+                        'role' => $role,
+                        'status' => 'active'
+                    ],
+                ],
+            ]);
         }
 
-        $token = $user->createToken('auth_token')->plainTextToken;
-        $role = UserRole::where('user_id', $user->id)->value('role');
+        // 3. If NOT user → check pending coach
+        $application = PendingCoachApplication::where('email', $request->email)->first();
 
-        return response()->json([
-            'data' => [
-                'token' => $token,
-                'user' => [
-                    'id' => $user->id,
-                    'name' => $user->name,
-                    'email' => $user->email,
-                    'role' => $role,
-                ],
-            ],
-        ]);
+        if ($application) {
+
+            if ($application->status === 'pending') {
+                return response()->json([
+                    'message' => 'Your coach application is still under review. Please wait for admin approval.'
+                ], 403);
+            }
+
+            if ($application->status === 'rejected') {
+                return response()->json([
+                    'message' => 'Your coach application was rejected.'
+                ], 403);
+            }
+        }
+
+        // 4. If nothing found
+        return response()->json(['message' => 'Invalid credentials'], 401);
     }
-
     public function me(Request $request)
     {
         $user = $request->user();
@@ -221,7 +275,7 @@ class AuthController extends BaseController
         ]);
 
         return response()->json([
-            'message' => 'Application submitted successfully',
+            'message' => 'Your coach application has been sent to admin for approval.',
         ]);
     }
 
