@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Auth;
 use App\Http\Controllers\Api\BaseController;
 use App\Mail\ResetPasswordMail;
 use App\Mail\CoachApplicationReceived;
+use App\Mail\ClientApplicationCreated;
 use App\Models\Coach\Coach;
 use App\Models\Coach\PendingCoachApplication;
 use App\Models\Core\Profile;
@@ -62,6 +63,8 @@ class AuthController extends BaseController
         );
 
         $token = $user->createToken('api_token')->plainTextToken;
+
+        Mail::to($request->email)->send(new ClientApplicationCreated($request->name));
 
         return $this->success([
             'user' => $user,
