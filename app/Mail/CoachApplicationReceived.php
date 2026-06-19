@@ -14,11 +14,11 @@ class CoachApplicationReceived extends Mailable
 {
     use Queueable, SerializesModels;
 
-    public User $user;
+    public string $name;
 
-    public function __construct(User $user)
+   public function __construct(string $name)
     {
-        $this->user = $user;
+       $this->name = $name;
     }
 
     public function envelope(): Envelope
@@ -33,7 +33,7 @@ class CoachApplicationReceived extends Mailable
         return new Content(
             view: 'emails.coach-application-received',
             with: [
-                'name' => $this->user->name,
+                'name' => $this->name,
             ],
         );
     }

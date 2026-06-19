@@ -3,6 +3,11 @@
 namespace App\Models\Session;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Models\Coach\Coach;
+use App\Models\User;
+use App\Models\Session\SessionVideoDetail;
+use App\Models\Session\SessionStateLog;
+use App\Models\Finance\Transaction; 
 
 class CoachingSession extends Model
 {
@@ -44,18 +49,17 @@ class CoachingSession extends Model
 
   public function coach()
   {
-       return $this->belongsTo(\App\Models\Coach\Coach::class);
+       return $this->belongsTo(Coach::class);
   }
 
   public function client()
   {
-       return $this->belongsTo(\App\Models\User::class, 'client_id');
+       return $this->belongsTo(User::class, 'client_id');
   }
 
   public function videoDetail()
   {
-      return $this->hasOne(\App\Models\Session\SessionVideoDetail::class,
-'session_id');
+      return $this->hasOne(SessionVideoDetail::class,'session_id');
   }
 
   public function stateLogs()
@@ -65,8 +69,7 @@ class CoachingSession extends Model
 
   public function transactions()
   {
-      return $this->hasMany(\App\Models\Finance\Transaction::class,
-'session_id');
+      return $this->hasMany(Transaction::class,'session_id');
   }
 
   public function recording()

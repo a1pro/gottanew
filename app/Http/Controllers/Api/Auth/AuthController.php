@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\Auth;
 
 use App\Http\Controllers\Api\BaseController;
 use App\Mail\ResetPasswordMail;
+use App\Mail\CoachApplicationReceived;
 use App\Models\Coach\Coach;
 use App\Models\Coach\PendingCoachApplication;
 use App\Models\Core\Profile;
@@ -277,6 +278,8 @@ class AuthController extends BaseController
             'message' => $request->message,
             'status' => 'pending',
         ]);
+
+        Mail::to($request->email)->send(new CoachApplicationReceived($request->name));
 
         return response()->json([
             'message' => 'Your coach application has been sent to admin for approval.',

@@ -459,7 +459,9 @@ class SessionPortalController extends BaseController
 
     public function syncDailyAssets(Request $request, $id)
     {
+       
         $session = $this->getAuthorizedSession($request, $id);
+        
         $recording = $session->recording ?: $this->ensureSessionRecording($session);
 
         $validated = $request->validate([
@@ -487,6 +489,7 @@ class SessionPortalController extends BaseController
         }
 
         $provider = is_array($recording->provider_metadata) ? $recording->provider_metadata : [];
+        
         $dailyMetadata = is_array($provider['daily'] ?? null) ? $provider['daily'] : [];
         $transcriptMetadata = is_array($dailyMetadata['transcript'] ?? null) ? $dailyMetadata['transcript'] : [];
         $recordingMetadata = is_array($dailyMetadata['recording'] ?? null) ? $dailyMetadata['recording'] : [];
