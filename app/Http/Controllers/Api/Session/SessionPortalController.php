@@ -445,10 +445,23 @@ class SessionPortalController extends BaseController
             'informed_recording_consent_confirmed' => true,
             'consent_version' => self::SESSION_CONSENT_VERSION,
         ]);
+        
+        \Illuminate\Support\Facades\Log::info('Session consent saved', [
+            'session_id' => $session->id,
+            'user_id' => $user->id,
+            'transcription_consent' => $validated['transcription_consent'],
+            'recording_enabled' => $recordingEnabled,
+        ]);
 
         $recording->update([
             'privacy_settings' => $privacySettings,
             'transcription_status' => $validated['transcription_consent'] === 'full' ? 'active' : 'inactive',
+        ]);
+        
+        \Illuminate\Support\Facades\Log::info('Transcription status set', [
+            'session_id' => $session->id,
+            'transcription_status' => $validated['transcription_consent'] === 'full' ? 'active' : 'inactive',
+            'recording_id' => $recording->id,
         ]);
 
         return $this->success(
@@ -1376,57 +1389,47 @@ private function canManualRecover(CoachingSession $session, $user): bool
     }
 
     private function startDailyCaptureIfNeeded(CoachingSession $session, bool $force = false): array
-{
-    $roomName = optional($session->videoDetail)->daily_room_name;
-    $recording = $session->recording ?: $this->ensureSessionRecording($session);
-    $privacy = is_array($recording->privacy_settings) ? $recording->privacy_settings : [];
-    $providerMetadata = is_array($recording->provider_metadata) ? $recording->provider_metadata : [];
-    $captureStarted = [
-        'recording' => false,
-        'transcription' => false,
-    ];
+    {
+        $roomName = optional($session->videoDetail)->daily_room_name;
+        $recording = $session->recording ?: $this->ensureSessionRecording($session);
+        $privacy = is_array($recording->privacy_settings) ? $recording->privacy_settings : [];
+        $providerMetadata = is_array($recording->provider_metadata) ? $recording->provider_metadata : [];
+        $captureStarted = [
+            'recording' => false,
+            'transcription' => false,
+        ];
 
-    if (!$roomName || $this->dailyService->usingFakeRoom() || !$this->dailyService->isConfigured()) {
-        return $captureStarted;
-    }
-
-    $recordingStatus = data_get($providerMetadata, 'daily.recording.status');
-    $transcriptionStatus = data_get($providerMetadata, 'daily.transcript.status');
-
-    if (($privacy['recording_enabled'] ?? false) === true && ($force || !in_array($recordingStatus, ['active', 'completed'], true))) {
-        try {
-            $response = $this->dailyService->startRecording($roomName, ['type' => 'cloud']);
-            $captureStarted['recording'] = true;
-
-            $providerMetadata = array_replace_recursive(
-                is_array($recording->provider_metadata) ? $recording->provider_metadata : [],
-                [
-                    'daily' => [
-                        'recording' => [
-                            'status' => 'active',
-                            'started_at' => now()->toISOString(),
-                            'start_response' => $response,
-                        ],
-                    ],
-                ]
-            );
-
-            $recording->update([
-                'provider_name' => 'daily',
-                'daily_recording_id' => $response['recordingId'] ?? $response['recording_id'] ?? $recording->daily_recording_id,
-                'daily_recording_instance_id' => $response['instanceId'] ?? $response['instance_id'] ?? $recording->daily_recording_instance_id,
-                'provider_metadata' => $providerMetadata,
+        if (!$roomName || $this->dailyService->usingFakeRoom() || !$this->dailyService->isConfigured()) {
+            Log::warning('startDailyCaptureIfNeeded: skipped - missing config', [
+                'session_id' => $session->id,
+                'room_name' => $roomName ? '(set)' : '(missing)',
+                'using_fake_room' => $this->dailyService->usingFakeRoom(),
+                'configured' => $this->dailyService->isConfigured(),
             ]);
-        } catch (\Throwable $e) {
-            if ($this->isDailyAlreadyActiveStreamError($e)) {
+            return $captureStarted;
+        }
+
+        $recordingStatus = data_get($providerMetadata, 'daily.recording.status');
+        $transcriptionStatus = data_get($providerMetadata, 'daily.transcript.status');
+
+        if (($privacy['recording_enabled'] ?? false) === true && ($force || !in_array($recordingStatus, ['active', 'completed'], true))) {
+            try {
+                \Illuminate\Support\Facades\Log::info('startDailyCaptureIfNeeded: starting recording', [
+                    'session_id' => $session->id,
+                    'force' => $force,
+                ]);
+                
+                $response = $this->dailyService->startRecording($roomName, ['type' => 'cloud']);
+                $captureStarted['recording'] = true;
+
                 $providerMetadata = array_replace_recursive(
                     is_array($recording->provider_metadata) ? $recording->provider_metadata : [],
                     [
                         'daily' => [
                             'recording' => [
                                 'status' => 'active',
-                                'reconfirmed_at' => now()->toISOString(),
-                                'last_start_skip_reason' => $e->getMessage(),
+                                'started_at' => now()->toISOString(),
+                                'start_response' => $response,
                             ],
                         ],
                     ]
@@ -1434,88 +1437,242 @@ private function canManualRecover(CoachingSession $session, $user): bool
 
                 $recording->update([
                     'provider_name' => 'daily',
+                    'daily_recording_id' => $response['recordingId'] ?? $response['recording_id'] ?? $recording->daily_recording_id,
+                    'daily_recording_instance_id' => $response['instanceId'] ?? $response['instance_id'] ?? $recording->daily_recording_instance_id,
                     'provider_metadata' => $providerMetadata,
                 ]);
-            } else {
-                Log::info('Daily recording start skipped', [
-                    'session_id' => $session->id,
-                    'message' => $e->getMessage(),
-                ]);
+            } catch (\Throwable $e) {
+                if ($this->isDailyAlreadyActiveStreamError($e)) {
+                    Log::info('startDailyCaptureIfNeeded: recording already active - attempting to fetch recording ID', [
+                        'session_id' => $session->id,
+                        'room_name' => $roomName,
+                    ]);
+                    
+                    // Try to fetch room status to get recording ID from active recording
+                    $recordingIdFromRoom = null;
+                    try {
+                        $roomStatus = $this->dailyService->getRoom($roomName);
+                        
+                    Log::debug('startDailyCaptureIfNeeded: room status fetched for recording ID extraction', [
+                            'session_id' => $session->id,
+                            'room_name' => $roomName,
+                            'has_recording_key' => isset($roomStatus['recording']),
+                            'has_recordingId_key' => isset($roomStatus['recordingId']),
+                            'has_recording_instance_key' => isset($roomStatus['recording_instance']),
+                            'recording_data' => $roomStatus['recording'] ?? null,
+                            'all_keys' => array_keys($roomStatus),
+                        ]);
+                        
+                        // Daily may include recording info in room response at various paths
+                        if (isset($roomStatus['recording']) && is_array($roomStatus['recording'])) {
+                            $recordingIdFromRoom = $roomStatus['recording']['id'] 
+                                ?? $roomStatus['recording']['recording_id']
+                                ?? $roomStatus['recording']['recordingId'] 
+                                ?? null;
+                        } elseif (isset($roomStatus['recordingId'])) {
+                            $recordingIdFromRoom = $roomStatus['recordingId'];
+                        }
+                        
+                        if ($recordingIdFromRoom) {
+                            Log::info('startDailyCaptureIfNeeded: recording ID recovered from room status', [
+                                'session_id' => $session->id,
+                                'recording_id' => $recordingIdFromRoom,
+                            ]);
+                        } else {
+                        Log::debug('startDailyCaptureIfNeeded: room status fetched but no recording ID found', [
+                                'session_id' => $session->id,
+                                'recording_info_available' => isset($roomStatus['recording']) ? 'yes' : 'no',
+                            ]);
+                        }
+                    } catch (\Throwable $roomFetchError) {
+                        Log::warning('startDailyCaptureIfNeeded: failed to fetch room status for recording ID', [
+                            'session_id' => $session->id,
+                            'room_name' => $roomName,
+                            'error' => $roomFetchError->getMessage(),
+                        ]);
+                    }
+                    
+                    $providerMetadata = array_replace_recursive(
+                        is_array($recording->provider_metadata) ? $recording->provider_metadata : [],
+                        [
+                            'daily' => [
+                                'recording' => [
+                                    'status' => 'active',
+                                    'reconfirmed_at' => now()->toISOString(),
+                                    'last_start_skip_reason' => $e->getMessage(),
+                                    'recording_id_from_room_status' => $recordingIdFromRoom,
+                                ],
+                            ],
+                        ]
+                    );
+
+                    $recording->update([
+                        'provider_name' => 'daily',
+                        'daily_recording_id' => $recordingIdFromRoom ?? $recording->daily_recording_id,
+                        'provider_metadata' => $providerMetadata,
+                    ]);
+                    
+                    Log::info('startDailyCaptureIfNeeded: updated recording with already-active recording', [
+                        'session_id' => $session->id,
+                        'recording_id' => $recordingIdFromRoom ?? '(pending from webhook)',
+                    ]);
+                } else {
+                    Log::warning('startDailyCaptureIfNeeded: recording start failed', [
+                        'session_id' => $session->id,
+                        'message' => $e->getMessage(),
+                    ]);
+                }
             }
         }
-    }
 
-    if (($privacy['transcription_consent'] ?? 'none') === 'full' && ($force || !in_array($transcriptionStatus, ['active', 'completed'], true))) {
-        try {
-            $response = $this->dailyService->startTranscription($roomName);
-            $captureStarted['transcription'] = true;
+        if (($privacy['transcription_consent'] ?? 'none') === 'full' && ($force || !in_array($transcriptionStatus, ['active', 'completed'], true))) {
+            try {
+                Log::info('startDailyCaptureIfNeeded: starting transcription', [
+                    'session_id' => $session->id,
+                    'force' => $force,
+                    'room_name' => $roomName,
+                    'transcription_consent' => 'full',
+                ]);
+                
+                $response = $this->dailyService->startTranscription($roomName);
+                $captureStarted['transcription'] = true;
 
-            $providerMetadata = array_replace_recursive(
-                is_array($recording->provider_metadata) ? $recording->provider_metadata : [],
-                [
-                    'daily' => [
-                        'transcript' => [
-                            'status' => 'active',
-                            'started_at' => now()->toISOString(),
-                            'start_response' => $response,
-                        ],
-                    ],
-                ]
-            );
-
-            $transcriptLink = $this->extractDailyTranscriptLinkFromPayload($response);
-
-            $recording->update([
-                'provider_name' => 'daily',
-                'daily_transcript_id' => $this->extractDailyTranscriptIdFromResponse($response) ?? $recording->daily_transcript_id,
-                'daily_transcript_instance_id' => data_get($response, 'info.instanceId')
-                    ?? data_get($response, 'info.instance_id')
-                    ?? data_get($response, 'transcript.instanceId')
-                    ?? data_get($response, 'transcript.instance_id')
-                    ?? $response['instanceId']
-                    ?? $response['instance_id']
-                    ?? $recording->daily_transcript_instance_id,
-                'transcription_status' => 'active',
-                'provider_metadata' => array_replace_recursive($providerMetadata, [
-                    'daily' => [
-                        'transcript' => [
-                            'access_link' => $transcriptLink,
-                            'download_link' => $transcriptLink,
-                        ],
-                    ],
-                ]),
-            ]);
-        } catch (\Throwable $e) {
-            if ($this->isDailyAlreadyActiveStreamError($e)) {
                 $providerMetadata = array_replace_recursive(
                     is_array($recording->provider_metadata) ? $recording->provider_metadata : [],
                     [
                         'daily' => [
                             'transcript' => [
                                 'status' => 'active',
-                                'reconfirmed_at' => now()->toISOString(),
-                                'last_start_skip_reason' => $e->getMessage(),
+                                'started_at' => now()->toISOString(),
+                                'start_response' => $response,
                             ],
                         ],
                     ]
                 );
 
+                $transcriptLink = $this->extractDailyTranscriptLinkFromPayload($response);
+
                 $recording->update([
                     'provider_name' => 'daily',
+                    'daily_transcript_id' => $this->extractDailyTranscriptIdFromResponse($response) ?? $recording->daily_transcript_id,
+                    'daily_transcript_instance_id' => data_get($response, 'info.instanceId')
+                        ?? data_get($response, 'info.instance_id')
+                        ?? data_get($response, 'transcript.instanceId')
+                        ?? data_get($response, 'transcript.instance_id')
+                        ?? $response['instanceId']
+                        ?? $response['instance_id']
+                        ?? $recording->daily_transcript_instance_id,
                     'transcription_status' => 'active',
-                    'provider_metadata' => $providerMetadata,
+                    'provider_metadata' => array_replace_recursive($providerMetadata, [
+                        'daily' => [
+                            'transcript' => [
+                                'access_link' => $transcriptLink,
+                                'download_link' => $transcriptLink,
+                            ],
+                        ],
+                    ]),
                 ]);
-            } else {
-                Log::info('Daily transcription start skipped', [
+                
+                Log::info('startDailyCaptureIfNeeded: transcription started successfully', [
                     'session_id' => $session->id,
-                    'message' => $e->getMessage(),
+                    'recording_id' => $recording->id,
+                    'transcript_id' => $this->extractDailyTranscriptIdFromResponse($response),
                 ]);
-            }
-        }
-    }
+            } catch (\Throwable $e) {
+                if ($this->isDailyAlreadyActiveStreamError($e)) {
+                    Log::info('startDailyCaptureIfNeeded: transcription already active - attempting to fetch transcript ID', [
+                        'session_id' => $session->id,
+                        'room_name' => $roomName,
+                    ]);
+                    
+                    // Try to fetch room status to get transcript ID from active transcription
+                    $transcriptIdFromRoom = null;
+                    try {
+                        $roomStatus = $this->dailyService->getRoom($roomName);
+                        
+                        Log::debug('startDailyCaptureIfNeeded: room status fetched for transcript ID extraction', [
+                            'session_id' => $session->id,
+                            'room_name' => $roomName,
+                            'has_transcription_key' => isset($roomStatus['transcription']),
+                            'has_transcriptionId_key' => isset($roomStatus['transcriptionId']),
+                            'has_transcript_id_key' => isset($roomStatus['transcript_id']),
+                            'transcription_data' => $roomStatus['transcription'] ?? null,
+                            'all_keys' => array_keys($roomStatus),
+                        ]);
+                        
+                        // Daily may include transcription info in room response at various paths
+                        if (isset($roomStatus['transcription']) && is_array($roomStatus['transcription'])) {
+                            $transcriptIdFromRoom = $roomStatus['transcription']['id'] 
+                                ?? $roomStatus['transcription']['transcript_id']
+                                ?? $roomStatus['transcription']['transcriptId'] 
+                                ?? null;
+                        } elseif (isset($roomStatus['transcriptionId'])) {
+                            $transcriptIdFromRoom = $roomStatus['transcriptionId'];
+                        } elseif (isset($roomStatus['transcript_id'])) {
+                            $transcriptIdFromRoom = $roomStatus['transcript_id'];
+                        }
+                        
+                        if ($transcriptIdFromRoom) {
+                            Log::info('startDailyCaptureIfNeeded: transcript ID recovered from room status', [
+                                'session_id' => $session->id,
+                                'transcript_id' => $transcriptIdFromRoom,
+                            ]);
+                        } else {
+                            Log::debug('startDailyCaptureIfNeeded: room status fetched but no transcript ID found', [
+                                'session_id' => $session->id,
+                                'transcription_info_available' => isset($roomStatus['transcription']) ? 'yes' : 'no',
+                            ]);
+                        }
+                    } catch (\Throwable $roomFetchError) {
+                        Log::warning('startDailyCaptureIfNeeded: failed to fetch room status for transcript ID', [
+                            'session_id' => $session->id,
+                            'room_name' => $roomName,
+                            'error' => $roomFetchError->getMessage(),
+                        ]);
+                    }
+                    
+                    $providerMetadata = array_replace_recursive(
+                        is_array($recording->provider_metadata) ? $recording->provider_metadata : [],
+                        [
+                            'daily' => [
+                                'transcript' => [
+                                    'status' => 'active',
+                                    'reconfirmed_at' => now()->toISOString(),
+                                    'last_start_skip_reason' => $e->getMessage(),
+                                    'transcript_id_from_room_status' => $transcriptIdFromRoom,
+                                ],
+                            ],
+                        ]
+                    );
 
-    return $captureStarted;
-}
+                    $recording->update([
+                        'provider_name' => 'daily',
+                        'daily_transcript_id' => $transcriptIdFromRoom ?? $recording->daily_transcript_id,
+                        'transcription_status' => 'active',
+                        'provider_metadata' => $providerMetadata,
+                    ]);
+                    
+                    Log::info('startDailyCaptureIfNeeded: updated recording with already-active transcription', [
+                        'session_id' => $session->id,
+                        'recording_id' => $recording->id,
+                        'transcript_id' => $transcriptIdFromRoom ?? '(pending from webhook)',
+                    ]);
+                } else {
+                    Log::warning('startDailyCaptureIfNeeded: transcription start failed', [
+                        'session_id' => $session->id,
+                        'message' => $e->getMessage(),
+                    ]);
+                }
+            }
+        } else if (($privacy['transcription_consent'] ?? 'none') !== 'full') {
+            Log::info('startDailyCaptureIfNeeded: transcription skipped - consent not full', [
+                'session_id' => $session->id,
+                'transcription_consent' => $privacy['transcription_consent'] ?? 'none',
+            ]);
+        }
+
+        return $captureStarted;
+    }
 
 
 private function buildMeetingTokenWindow(CoachingSession $session): array

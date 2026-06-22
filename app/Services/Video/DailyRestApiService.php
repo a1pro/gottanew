@@ -3,6 +3,7 @@
 namespace App\Services\Video;
 
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class DailyRestApiService
@@ -24,6 +25,7 @@ class DailyRestApiService
     {
         if ($this->usingFakeRoom()) {
             $suffix = now()->format('YmdHis');
+            Log::info('Creating fake Daily room for local development', ['suffix' => $suffix]);
 
             return [
                 'id' => 'local-test-room-' . $suffix,
@@ -46,7 +48,19 @@ class DailyRestApiService
             ],
         ], $overrides);
 
+        Log::debug('Daily API: createRoom request', ['room_name' => $payload['name'] ?? 'unknown']);
+
         $response = $this->request('POST', '/rooms', $payload);
+
+        Log::info('Daily transcription raw response', [
+            'response' => $response,
+        ]);
+
+        Log::info('Daily API: room created successfully', [
+            'room_id' => $response['id'] ?? null,
+            'room_name' => $response['name'] ?? null,
+            'enable_transcription_storage' => $payload['properties']['enable_transcription_storage'] ?? false,
+        ]);
 
         return [
             'id' => $response['id'] ?? null,
@@ -102,20 +116,85 @@ class DailyRestApiService
             'includeRawResponse' => true,
         ], static fn ($value) => $value !== null && $value !== '');
 
-        return $this->request(
-            'POST',
-            '/rooms/' . rawurlencode($roomName) . '/transcription/start',
-            array_merge($defaultPayload, $payload)
-        );
+        Log::info('Daily API: startTranscription request', [
+            'room_name' => $roomName,
+            'language' => $defaultPayload['language'] ?? 'en',
+            'model' => $defaultPayload['model'] ?? 'unknown',
+        ]);
+
+        try {
+            $response = $this->request(
+                'POST',
+                '/rooms/' . rawurlencode($roomName) . '/transcription/start',
+                array_merge($defaultPayload, $payload)
+            );
+            
+            Log::info('Daily API: transcription started successfully', [
+                'room_name' => $roomName,
+                'transcript_id' => $response['id'] ?? $response['transcript_id'] ?? null,
+                'instance_id' => $response['instanceId'] ?? $response['instance_id'] ?? null,
+            ]);
+            
+            return $response;
+        } catch (\Throwable $e) {
+            $message = strtolower($e->getMessage());
+            $isAlreadyActive = str_contains($message, 'has an active stream') || str_contains($message, 'stream in progress');
+            
+            if ($isAlreadyActive) {
+                Log::info('Daily API: transcription already active for room', [
+                    'room_name' => $roomName,
+                    'reason' => 'Transcription stream was already running (possibly auto-started when participants joined)',
+                ]);
+            } else {
+                Log::error('Daily API: transcription start failed', [
+                    'room_name' => $roomName,
+                    'error' => $e->getMessage(),
+                    'code' => $e->getCode(),
+                ]);
+            }
+            throw $e;
+        }
     }
 
     public function stopTranscription(string $roomName, array $payload = []): array
     {
-        return $this->request(
-            'POST',
-            '/rooms/' . rawurlencode($roomName) . '/transcription/stop',
-            empty($payload) ? new \stdClass() : $payload
-        );
+        Log::info('Daily API: stopTranscription request', [
+            'room_name' => $roomName,
+            'instance_id' => $payload['instanceId'] ?? $payload['instance_id'] ?? null,
+        ]);
+
+        try {
+            $response = $this->request(
+                'POST',
+                '/rooms/' . rawurlencode($roomName) . '/transcription/stop',
+                empty($payload) ? new \stdClass() : $payload
+            );
+            
+            Log::info('Daily API: transcription stopped successfully', [
+                'room_name' => $roomName,
+                'instance_id' => $response['instanceId'] ?? $response['instance_id'] ?? null,
+            ]);
+            
+            return $response;
+        } catch (\Throwable $e) {
+            $message = strtolower($e->getMessage());
+            $isAlreadyInactive = str_contains($message, 'no active stream') || str_contains($message, 'not in progress');
+            
+            if ($isAlreadyInactive) {
+                Log::info('Daily API: transcription already stopped', [
+                    'room_name' => $roomName,
+                    'reason' => 'Transcription was not active (possibly already stopped)',
+                ]);
+            } else {
+                Log::error('Daily API: transcription stop failed', [
+                    'room_name' => $roomName,
+                    'error' => $e->getMessage(),
+                ]);
+                throw $e;
+            }
+            
+            return [];
+        }
     }
 
     public function getRoom(string $roomName): array
@@ -127,6 +206,14 @@ class DailyRestApiService
     {
         $response = $this->request('GET', '/webhooks');
 
+        Log::info('Daily webhooks', [
+            'response' => $response,
+        ]);
+
+        if (!is_array($response)) {
+            return [];
+        }
+
         if (isset($response['data']) && is_array($response['data'])) {
             return $response['data'];
         }
@@ -135,7 +222,12 @@ class DailyRestApiService
             return $response['webhooks'];
         }
 
-        return array_values(array_filter($response, static fn ($item) => is_array($item)));
+        return array_values(
+            array_filter(
+                $response,
+                fn ($item) => is_array($item)
+            )
+        );
     }
 
     public function getWebhook(string $uuid): array
@@ -148,8 +240,15 @@ class DailyRestApiService
         $url = trim((string) $url);
 
         if ($url === '') {
+            Log::error('Daily API: createWebhook failed - URL is required');
             throw new \InvalidArgumentException('Webhook URL is required.');
         }
+        
+        Log::info('Daily API: creating webhook', [
+            'url' => $url,
+            'event_types' => $eventTypes,
+            'retry_type' => $retryType,
+        ]);
 
         $retryType = trim((string) ($retryType ?: config('services.daily.webhook_retry_type', 'circuit-breaker')));
 
@@ -163,7 +262,14 @@ class DailyRestApiService
             'hmac' => is_string($hmac) && trim($hmac) !== '' ? trim($hmac) : null,
         ], static fn ($value) => $value !== null);
 
-        return $this->request('POST', '/webhooks', $payload);
+        $response = $this->request('POST', '/webhooks', $payload);
+        
+        Log::info('Daily API: webhook created successfully', [
+            'uuid' => $response['uuid'] ?? null,
+            'url' => $response['url'] ?? null,
+        ]);
+        
+        return $response;
     }
 
     public function updateWebhook(string $uuid, string $url, array $eventTypes, ?string $hmac = null, ?string $retryType = null): array
@@ -353,7 +459,19 @@ class DailyRestApiService
         };
 
         if (!$response->successful()) {
-            throw new \RuntimeException('Daily API request failed: ' . ($response->json('info') ?: $response->body()));
+
+            Log::error('Daily API failed', [
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ]);
+
+            throw new \RuntimeException(
+                sprintf(
+                    'Daily API request failed (%s): %s',
+                    $response->status(),
+                    $response->body()
+                )
+            );
         }
 
         return $response->json() ?? [];

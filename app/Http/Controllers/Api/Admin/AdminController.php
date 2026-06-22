@@ -445,7 +445,8 @@ class AdminController extends BaseController
     private function buildDailyVerification(CoachingSession $session): array
     {
         $recording = $session->recording ?: $this->ensureRecording($session);
-        $roomName = (string) (optional($session->videoDetail)->daily_room_name ?? '');
+        $roomName = (string)( $session->videoDetail?->daily_room_name ?? '');
+
         $roomReport = [
             'checked' => false,
             'exists' => false,

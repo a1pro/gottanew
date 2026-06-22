@@ -26,6 +26,8 @@ class DailyWebhookController extends Controller
     {
         $event = $request->all();
 
+        Log::info('================ WEBHOOK HIT =================');
+
         Log::info('Daily webhook entered controller', [
                 'headers' => [
                     'signature' => $request->header('X-Webhook-Signature'),
@@ -35,6 +37,7 @@ class DailyWebhookController extends Controller
             ]);
 
         if ($this->isVerificationRequest($request, $event)) {
+
             Log::info('Accepted Daily webhook verification request.', [
                 'ip' => $request->ip(),
                 'user_agent' => $request->userAgent(),
@@ -60,9 +63,11 @@ class DailyWebhookController extends Controller
             return response()->json(['message' => 'Invalid Daily signature.'], 403);
         }
 
-        $eventType = (string) ($event['type'] ?? data_get($event, 'payload.type') ?? 'unknown');
+        $eventType = (string) ($event['eventType']?? $event['type'] ?? data_get($event, 'payload.type')?? 'unknown');
         $payload = $this->extractPayload($event);
-        $roomName = (string) ($payload['room_name'] ?? data_get($event, 'room_name') ?? '');
+        // $roomName = (string) ($payload['room_name'] ?? data_get($event, 'room_name') ?? '');
+        $roomName = (string)( $payload['room_name']?? $payload['roomName']?? data_get($event,'room_name')?? data_get($event,'roomName')?? '');
+
 
         if ($roomName === '') {
             Log::warning('Daily webhook ignored: missing room name', [
@@ -117,8 +122,15 @@ class DailyWebhookController extends Controller
         $receipt->update(['session_id' => $session->id]);
 
         $recording = $this->ensureRecording($session);
-
+        
         try {
+
+            Log::info('Daily webhook about to process', [
+                'eventType' => $eventType,
+                'roomName' => $roomName,
+                'payload' => $payload,
+            ]);
+
             match ($eventType) {
                 'transcript.started' => $this->handleTranscriptStarted($recording, $payload),
                 'transcript.ready-to-download' => $this->handleTranscriptReady($session, $recording, $payload),
@@ -167,10 +179,12 @@ class DailyWebhookController extends Controller
                 return true;
             }
         }
-
-        $eventType = (string) ($event['type'] ?? data_get($event, 'payload.type') ?? '');
-        $roomName = (string) ($event['room_name'] ?? data_get($event, 'payload.room_name') ?? '');
-
+        $payload = $this->extractPayload($event);
+        // $eventType = (string) ($event['type'] ?? data_get($event, 'payload.type') ?? '');
+        $eventType = (string) ($event['eventType']?? $event['type'] ?? data_get($event, 'payload.type')?? 'unknown');
+        // $roomName = (string) ($event['room_name'] ?? data_get($event, 'payload.room_name') ?? '');
+        $roomName = (string)( $payload['room_name']?? $payload['roomName']?? data_get($event,'room_name')?? data_get($event,'roomName')?? '');
+        
         if ($eventType === '' && $roomName === '') {
             return true;
         }
@@ -188,6 +202,12 @@ class DailyWebhookController extends Controller
     {
         $transcriptId = $this->extractTranscriptId($payload);
         $transcriptInstanceId = $this->extractInstanceId($payload);
+        Log::info('Daily webhook: transcript.started event received', [
+            'recording_id' => $recording->id,
+            'session_id' => $recording->session_id,
+            'transcript_id' => $transcriptId,
+            'instance_id' => $transcriptInstanceId,
+        ]);
 
         $recording->update([
             'provider_name' => 'daily',
@@ -213,14 +233,27 @@ class DailyWebhookController extends Controller
                 ],
             ]),
         ]);
+        
+        Log::info('Daily webhook: transcript marked as active in database', [
+            'recording_id' => $recording->id,
+            'transcription_status' => 'active',
+        ]);
     }
 
     private function handleTranscriptReady(CoachingSession $session, SessionRecording $recording, array $payload): void
     {
+       
         $transcriptId = $this->extractTranscriptId($payload);
         $transcriptInstanceId = $this->extractInstanceId($payload);
-
         $transcriptLink = $this->extractTranscriptAccessLink($payload);
+
+        Log::info('Daily webhook: transcript.ready-to-download event received', [
+            'recording_id' => $recording->id,
+            'session_id' => $session->id,
+            'transcript_id' => $transcriptId,
+            'duration_seconds' => $payload['duration'] ?? null,
+            'has_access_link' => !empty($transcriptLink),
+        ]);
 
         $recording->update([
             'provider_name' => 'daily',
@@ -251,6 +284,11 @@ class DailyWebhookController extends Controller
                 ],
             ]),
         ]);
+        
+        Log::info('Daily webhook: dispatching SyncDailyTranscriptJob', [
+            'session_id' => $session->id,
+            'recording_id' => $recording->id,
+        ]);
 
         if ((string) config('queue.default') === 'sync') {
             SyncDailyTranscriptJob::dispatchSync($session->id);
@@ -263,6 +301,14 @@ class DailyWebhookController extends Controller
     {
         $transcriptId = $this->extractTranscriptId($payload);
         $transcriptInstanceId = $this->extractInstanceId($payload);
+
+        Log::error('Daily webhook: transcript.error event received', [
+            'recording_id' => $recording->id,
+            'session_id' => $recording->session_id,
+            'transcript_id' => $transcriptId,
+            'error' => $payload['error'] ?? $payload['message'] ?? 'unknown',
+            'event_payload' => $payload,
+        ]);
 
         $recording->update([
             'provider_name' => 'daily',
@@ -378,21 +424,31 @@ class DailyWebhookController extends Controller
     }
 
     private function extractPayload(array $event): array
-{
-    $payload = $event['payload'] ?? null;
+    {
+        $payload = $event['payload'] ?? null;
 
-    if (!is_array($payload)) {
-        return $event;
-    }
-
-    foreach (['id', 'type', 'room_name', 'room_id', 'instance_id', 'instanceId', 'mtg_session_id'] as $key) {
-        if (!array_key_exists($key, $payload) && array_key_exists($key, $event)) {
-            $payload[$key] = $event[$key];
+        if (!is_array($payload)) {
+            return $event;
         }
-    }
 
-    return $payload;
-}
+        foreach ([
+            'id',
+            'type',
+            'eventType',
+            'room_name',
+            'roomName',
+            'room_id',
+            'instance_id',
+            'instanceId',
+            'mtg_session_id',
+        ] as $key) {
+            if (!array_key_exists($key, $payload) && array_key_exists($key, $event)) {
+                $payload[$key] = $event[$key];
+            }
+        }
+
+        return $payload;
+    }
 
     private function ensureRecording(CoachingSession $session): SessionRecording
     {

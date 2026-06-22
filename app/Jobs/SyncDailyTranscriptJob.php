@@ -37,8 +37,11 @@ class SyncDailyTranscriptJob implements ShouldQueue
             ->find($this->sessionId);
 
         if (!$session) {
+            Log::warning('SyncDailyTranscriptJob: session not found', ['session_id' => $this->sessionId]);
             return;
         }
+        
+        Log::info('SyncDailyTranscriptJob: starting transcript sync', ['session_id' => $this->sessionId]);
 
         /** @var SessionRecording $recording */
         $recording = $session->recording ?: SessionRecording::firstOrCreate(
@@ -54,6 +57,7 @@ class SyncDailyTranscriptJob implements ShouldQueue
         );
 
         if (is_string($recording->transcript) && trim($recording->transcript) !== '') {
+            Log::info('SyncDailyTranscriptJob: transcript already stored', ['session_id' => $this->sessionId]);
             return;
         }
 
@@ -61,10 +65,17 @@ class SyncDailyTranscriptJob implements ShouldQueue
             ? trim($recording->daily_transcript_id)
             : '';
 
+        Log::debug('SyncDailyTranscriptJob: transcript details', [
+            'session_id' => $this->sessionId,
+            'recording_id' => $recording->id,
+            'transcript_id' => $transcriptId ?: '(empty)',
+        ]);
+
         $lockKey = 'daily:transcript-sync:' . $recording->id;
         $lock = Cache::lock($lockKey, 90);
 
         if (!$lock->get()) {
+            Log::warning('SyncDailyTranscriptJob: could not acquire lock', ['recording_id' => $recording->id]);
             return;
         }
 
@@ -86,6 +97,11 @@ class SyncDailyTranscriptJob implements ShouldQueue
             ], static fn ($value) => is_string($value) && trim($value) !== '');
 
             if ($transcriptId === '' && !is_string($fallbackLink)) {
+                Log::error('SyncDailyTranscriptJob: missing transcript identifier and access link', [
+                    'session_id' => $this->sessionId,
+                    'recording_id' => $recording->id,
+                ]);
+                
                 $recording->update([
                     'provider_metadata' => array_replace_recursive(
                         is_array($recording->provider_metadata) ? $recording->provider_metadata : [],
@@ -101,6 +117,12 @@ class SyncDailyTranscriptJob implements ShouldQueue
                 ]);
                 return;
             }
+            
+            Log::info('SyncDailyTranscriptJob: fetching transcript text', [
+                'session_id' => $this->sessionId,
+                'transcript_id' => $transcriptId ?: '(using fallback link)',
+                'has_fallback_link' => !empty($fallbackLink),
+            ]);
 
             $text = $dailyService->resolveTranscriptText(
                 $transcriptId !== '' ? $transcriptId : null,
@@ -108,6 +130,12 @@ class SyncDailyTranscriptJob implements ShouldQueue
             );
 
             if (!is_string($text) || trim($text) === '') {
+                Log::error('SyncDailyTranscriptJob: failed to fetch transcript text', [
+                    'session_id' => $this->sessionId,
+                    'recording_id' => $recording->id,
+                    'transcript_id' => $transcriptId,
+                ]);
+                
                 $recording->update([
                     'provider_metadata' => array_replace_recursive(
                         is_array($recording->provider_metadata) ? $recording->provider_metadata : [],
@@ -125,6 +153,13 @@ class SyncDailyTranscriptJob implements ShouldQueue
             }
 
             $text = trim($text);
+            $textLength = strlen($text);
+            
+            Log::info('SyncDailyTranscriptJob: transcript text fetched successfully', [
+                'session_id' => $this->sessionId,
+                'text_length' => $textLength,
+                'word_count' => str_word_count($text),
+            ]);
 
             $recording->update([
                 'provider_name' => 'daily',
@@ -139,29 +174,41 @@ class SyncDailyTranscriptJob implements ShouldQueue
                                 'synced_at' => now()->toISOString(),
                                 'last_sync_attempt_at' => now()->toISOString(),
                                 'last_sync_attempt_status' => 'ok',
+                                'text_length' => $textLength,
+                                'word_count' => str_word_count($text),
                             ],
                         ],
                     ]
                 ),
             ]);
+            
+            Log::info('SyncDailyTranscriptJob: transcript persisted to database', [
+                'session_id' => $this->sessionId,
+                'recording_id' => $recording->id,
+                'transcription_status' => 'completed',
+            ]);
 
             if ($this->generateAiSummary) {
                 try {
+                    Log::debug('SyncDailyTranscriptJob: generating AI summary');
                     $sessionInsightService->generatePostSessionSummary(
                         $session->fresh(['client', 'coach', 'recording']),
                         true
                     );
+                    Log::info('SyncDailyTranscriptJob: AI summary generated successfully');
                 } catch (\Throwable $e) {
-                    Log::info('Post-session AI summary generation failed after transcript sync', [
+                    Log::warning('SyncDailyTranscriptJob: post-session AI summary generation failed', [
                         'session_id' => $session->id,
                         'message' => $e->getMessage(),
                     ]);
                 }
             }
         } catch (\Throwable $e) {
-            Log::warning('Daily transcript sync job failed', [
-                'session_id' => $session->id,
+            Log::error('SyncDailyTranscriptJob: exception occurred', [
+                'session_id' => $this->sessionId,
                 'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
             ]);
 
             $recording->update([
