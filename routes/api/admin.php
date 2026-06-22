@@ -13,6 +13,7 @@ Route::prefix('admin')
         Route::get('/coaches', [AdminController::class, 'coaches']);
         Route::get('/pending-applications', [AdminController::class, 'pendingApplications']);
         Route::post('/coaches/invite', [AdminController::class, 'inviteCoach']);
+        Route::put('/coaches/{id}/status', [AdminController::class, 'updateStatus']);
         Route::post('/approve-coach/{id}', [AdminController::class, 'approveApplication']);
 
         Route::get('/session-requests', [SessionRequestAdminController::class, 'index']);

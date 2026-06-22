@@ -70,6 +70,18 @@ class AdminController extends BaseController
         return $this->success($coaches);
     }
 
+    public function updateStatus(Request $request, $id)
+    {
+        $coach = Coach::findOrFail($id);
+
+        $coach->is_active = $request->is_active;
+        $coach->save();
+
+        return response()->json([
+            'message' => 'Coach status updated successfully'
+        ]);
+    }
+    
     public function pendingApplications(Request $request)
     {
         $applications = PendingCoachApplication::query()

@@ -29,10 +29,12 @@ class AuthController extends BaseController
             'name' => 'required',
             'email' => 'required|email|unique:users',
             'password' => 'required|min:6|confirmed',
-            'role' => 'required|in:client',
+            'role' => 'required|in:client,coach',
             'accept_terms' => 'required|accepted',
             'accept_privacy_policy' => 'required|accepted',
             'accept_coaching_disclaimer' => 'required|accepted',
+            'acknowledge_coach_independence' =>
+            'required_if:role,coach|accepted',
         ]);
 
         $user = User::create([
@@ -46,9 +48,13 @@ class AuthController extends BaseController
             'role' => $request->role,
         ]);
 
-        UserWallet::create([
-            'user_id' => $user->id,
-        ]);
+        if ($request->role == 'client') {
+
+            UserWallet::create([
+                'user_id' => $user->id,
+            ]);
+
+        }
 
         Profile::firstOrCreate(
             ['user_id' => $user->id],
@@ -59,6 +65,29 @@ class AuthController extends BaseController
                 ...$this->legalAcceptanceAttributes(),
             ]
         );
+
+        if ($request->role == 'coach') {
+
+            Coach::create([
+                'user_id' => $user->id,
+                'name' => $user->name,
+                'title' => '',
+                'bio' => '',
+                'years_experience' => 1,
+                'specialties' => [],
+                'similar_experiences' => [],
+                'notification_email' => $user->email,
+
+                'timezone' => 'UTC',
+
+                // Client requirement
+                'is_active' => false,
+                'available_now' => false,
+                'status' => 'pending_review',
+                'is_verified' => false,
+            ]);
+
+        }
 
         $token = $user->createToken('api_token')->plainTextToken;
 
