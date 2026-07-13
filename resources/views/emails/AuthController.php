@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Api\Auth;
 
 use App\Http\Controllers\Api\BaseController;
 use App\Mail\ResetPasswordMail;
+use App\Mail\CoachApplicationReceived;
+use App\Mail\ClientApplicationCreated;
 use App\Models\Coach\Coach;
 use App\Models\Coach\PendingCoachApplication;
 use App\Models\Core\Profile;
@@ -23,7 +25,7 @@ class AuthController extends BaseController
 {
     private const LEGAL_VERSION = '2026-03';
 
-    public function register(Request $request)
+   public function register(Request $request)
     {
         $request->validate([
             'name' => 'required',
@@ -97,45 +99,89 @@ class AuthController extends BaseController
         ], 'User registered');
     }
 
+    // public function login(Request $request)
+    // {
+    //     $request->validate([
+    //         'email' => 'required|email',
+    //         'password' => 'required',
+    //     ]);
+
+    //     $user = User::where('email', $request->email)->first();
+
+    //     if (!$user || !Hash::check($request->password, $user->password)) {
+    //         return response()->json(['message' => 'Invalid credentials'], 401);
+    //     }
+
+    //     $token = $user->createToken('auth_token')->plainTextToken;
+    //     $role = UserRole::where('user_id', $user->id)->value('role');
+
+    //     return response()->json([
+    //         'data' => [
+    //             'token' => $token,
+    //             'user' => [
+    //                 'id' => $user->id,
+    //                 'name' => $user->name,
+    //                 'email' => $user->email,
+    //                 'role' => $role,
+    //             ],
+    //         ],
+    //     ]);
+    // }
     public function login(Request $request)
     {
         $request->validate([
             'email' => 'required|email',
-            'password' => 'required',
-            'role' => 'required|in:admin,coach,client',
+            'password' => 'required|string',
         ]);
 
+        // 1. Check user
         $user = User::where('email', $request->email)->first();
 
-        if (!$user || !Hash::check($request->password, $user->password)) {
+        // 2. If user exists → normal login
+        if ($user) {
+
+            if (!Hash::check($request->password, $user->password)) {
+                return response()->json(['message' => 'Invalid credentials'], 401);
+            }
+
+            $token = $user->createToken('auth_token')->plainTextToken;
+            $role = UserRole::where('user_id', $user->id)->value('role');
+
             return response()->json([
-                'message' => 'Invalid credentials'
-            ], 401);
-        }
-
-        $userRole = UserRole::where('user_id', $user->id)->value('role');
-
-        if ($userRole !== $request->role) {
-            return response()->json([
-                'message' => 'You are not authorized to login as ' . $request->role
-            ], 403);
-        }
-
-        $token = $user->createToken('auth_token')->plainTextToken;
-
-        return response()->json([
-            'data' => [
-                'token' => $token,
-                'user' => [
-                    'id' => $user->id,
-                    'name' => $user->name,
-                    'email' => $user->email,
-                    'role' => $userRole,
+                'data' => [
+                    'token' => $token,
+                    'user' => [
+                        'id' => $user->id,
+                        'name' => $user->name,
+                        'email' => $user->email,
+                        'role' => $role,
+                        'status' => 'active'
+                    ],
                 ],
-            ],
-        ]);
-    }
+            ]);
+        }
 
+        // 3. If NOT user → check pending coach
+        $application = PendingCoachApplication::where('email', $request->email)->first();
+
+        if ($application) {
+
+            if ($application->status === 'pending') {
+                return response()->json([
+                    'message' => 'Your coach application is still under review. Please wait for admin approval.'
+                ], 403);
+            }
+
+            if ($application->status === 'rejected') {
+                return response()->json([
+                    'message' => 'Your coach application was rejected.'
+                ], 403);
+            }
+        }
+
+        // 4. If nothing found
+        return response()->json(['message' => 'Invalid credentials'], 401);
+    }
     public function me(Request $request)
     {
         $user = $request->user();
@@ -243,91 +289,7 @@ class AuthController extends BaseController
 
         return $this->success([], 'Logged out successfully');
     }
-
-    public function coachApply(Request $request)
-    {
-        $request->validate([
-            'name' => 'required',
-            'email' => 'required|email|unique:pending_coach_applications,email',
-            'experience' => 'required',
-            'specialties' => 'required|array',
-            'message' => 'required',
-            'accept_terms' => 'required|accepted',
-            'accept_privacy_policy' => 'required|accepted',
-            'accept_coaching_disclaimer' => 'required|accepted',
-            'acknowledge_coach_independence' => 'required|accepted',
-        ]);
-
-        PendingCoachApplication::create([
-            'name' => $request->name,
-            'email' => $request->email,
-            'phone' => $request->phone,
-            'experience' => $request->experience,
-            'specialties' => $request->specialties,
-            'message' => $request->message,
-            'status' => 'pending',
-        ]);
-
-        return response()->json([
-            'message' => 'Application submitted successfully',
-        ]);
-    }
-
-    public function approveCoach($id)
-    {
-        $application = PendingCoachApplication::findOrFail($id);
-
-        $user = User::create([
-            'name' => $application->name,
-            'email' => $application->email,
-            'password' => bcrypt(Str::random(10)),
-        ]);
-
-        UserRole::create([
-            'user_id' => $user->id,
-            'role' => 'coach',
-        ]);
-
-        Coach::create([
-            'user_id' => $user->id,
-            'name' => $application->name,
-            'title' => 'Coach',
-            'bio' => $application->message,
-            'years_experience' => $application->experience,
-            'specialties' => $application->specialties,
-        ]);
-
-        Profile::firstOrCreate(
-            ['user_id' => $user->id],
-            [
-                'full_name' => $user->name,
-                'notification_method' => 'email',
-                'email_verified' => !empty($user->email_verified_at),
-            ]
-        );
-
-        $application->update([
-            'status' => 'approved',
-        ]);
-
-        return response()->json([
-            'message' => 'Coach approved',
-        ]);
-    }
-
-    public function setPassword(Request $request)
-    {
-        $user = User::where('email', $request->email)->firstOrFail();
-
-        $user->password = Hash::make($request->password);
-        $user->save();
-
-        return response()->json([
-            'message' => 'Password set successfully',
-        ]);
-    }
-
-    public function forgotPassword(Request $request)
+public function forgotPassword(Request $request)
     {
         
         $validated = $request->validate([
@@ -388,6 +350,154 @@ class AuthController extends BaseController
 
         return response()->json([
             'message' => 'Password reset successful'
+        ]);
+    }
+    public function coachApply(Request $request)
+    {
+        $request->validate([
+            'name' => 'required|string|max:255',
+            'email' => 'required|email|unique:pending_coach_applications,email|unique:users,email',
+            // 'password' => 'required|min:6',
+            'phone' => 'nullable|string',
+            'experience' => 'required|string',
+            'specialties' => 'required|array',
+            'message' => 'required|string',
+            'accept_terms' => 'required|accepted',
+            'accept_privacy_policy' => 'required|accepted',
+            'accept_coaching_disclaimer' => 'required|accepted',
+            'acknowledge_coach_independence' => 'required|accepted',
+        ]);
+
+        $application = PendingCoachApplication::create([
+            'name' => $request->name,
+            'email' => $request->email,
+            'phone' => $request->phone,
+            // 'password' => Hash::make($request->password),
+            'experience' => $request->experience,
+            'specialties' => $request->specialties,
+            'message' => $request->message,
+            'status' => 'pending',
+        ]);
+
+        Mail::to($request->email)->send(new CoachApplicationReceived($request->name));
+        
+         return response()->json([
+            'message' => 'Your coach application has been sent to admin for approval.',
+        ]);
+    }
+
+    public function approveCoach($id)
+    {
+        try {
+            DB::beginTransaction();
+            
+            $application = PendingCoachApplication::findOrFail($id);
+            
+            // Check if user already exists
+            $existingUser = User::where('email', $application->email)->first();
+            
+            if ($existingUser) {
+                DB::rollBack();
+                return response()->json([
+                    'success' => false,
+                    'message' => 'User with this email already exists',
+                ], 400);
+            }
+            
+            // IMPORTANT: Use the EXACT password from application (already hashed)
+            $user = User::create([
+                'name' => $application->name,
+                'email' => $application->email,
+                'password' => $application->password, // Use existing hash
+                'phone' => $application->phone,
+                'is_active' => true,
+            ]);
+            
+            // Assign coach role
+            UserRole::create([
+                'user_id' => $user->id,
+                'role' => 'coach',
+            ]);
+            
+            // Create coach profile
+            Coach::create([
+                'user_id' => $user->id,
+                'name' => $application->name,
+                'title' => 'Coach',
+                'bio' => $application->message ?: 'Coach profile',
+                'years_experience' => (int) filter_var($application->experience, FILTER_SANITIZE_NUMBER_INT) ?: 1,
+                'specialties' => $application->specialties ?? [],
+                'similar_experiences' => [],
+                'notification_email' => $user->email,
+                'timezone' => 'UTC',
+                'is_active' => true,
+                'available_now' => false,
+                'hourly_rate_amount' => 100.00,
+                'hourly_rate_currency' => 'USD',
+                'hourly_coin_cost' => 100,
+                'booking_buffer_minutes' => 15,
+                'max_session_duration' => 60,
+                'min_session_duration' => 30,
+                'immediate_availability' => true,
+                'response_preference_minutes' => 5,
+            ]);
+            
+            // Create profile
+            Profile::firstOrCreate(
+                ['user_id' => $user->id],
+                [
+                    'full_name' => $user->name,
+                    'notification_method' => 'email',
+                    'email_verified' => false,
+                ]
+            );
+            
+            // Update application status
+            $application->update([
+                'status' => 'approved',
+                'reviewed_by' => auth()->id(),
+                'reviewed_at' => now(),
+            ]);
+            
+            DB::commit();
+            
+            return response()->json([
+                'success' => true,
+                'message' => 'Coach approved successfully. They can now login with their password.',
+                'data' => [
+                    'user' => [
+                        'id' => $user->id,
+                        'name' => $user->name,
+                        'email' => $user->email,
+                    ]
+                ]
+            ]);
+            
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Approval failed: ' . $e->getMessage());
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to approve coach: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function setPassword(Request $request)
+    {
+        $request->validate([
+            'email' => 'required|email',
+            'password' => 'required|min:6|confirmed',
+        ]);
+
+        $user = User::where('email', $request->email)->firstOrFail();
+
+        $user->password = Hash::make($request->password);
+        $user->save();
+
+        return response()->json([
+            'message' => 'Password set successfully',
         ]);
     }
 
