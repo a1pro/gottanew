@@ -33,8 +33,7 @@ class AuthController extends BaseController
             'accept_terms' => 'required|accepted',
             'accept_privacy_policy' => 'required|accepted',
             'accept_coaching_disclaimer' => 'required|accepted',
-            'acknowledge_coach_independence' =>
-            'required_if:role,coach|accepted',
+            'acknowledge_coach_independence' => 'exclude_unless:role,coach|required|accepted',
         ]);
 
         $user = User::create([
