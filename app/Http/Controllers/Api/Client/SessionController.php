@@ -19,6 +19,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use App\Models\Session\SessionRequest;
 
 class SessionController extends BaseController
 {
@@ -214,13 +215,19 @@ booked' : 'Session booked',
 
           $validated = $request->validate([
               'coach_id' => ['required', 'exists:coaches,id'],
+              'goal_summary' => ['nullable', 'string'],
+              'request_notes' => ['nullable', 'string'],
           ]);
 
           $coach = Coach::findOrFail($validated['coach_id']);
 
-          if (!$coach->available_now) {
-              return $this->error('Coach is not available right now', 422);
-          }
+        //   if (!$coach->available_now) {
+        //       return $this->error('Coach is not available right now', 422);
+        //   }
+
+             if (!$coach->immediate_availability) {
+                 return $this->error('Coach is not available right now', 422);
+             }
 
           $pricing = $this->sessionPricingService->preview((int) $user->id,
 (int) $coach->id);
@@ -250,9 +257,9 @@ SessionPricingService::STANDARD_TOKEN_COST);
                   'room_response' => $room,
               ], 500);
           }
-
+       
           $session = DB::transaction(function () use ($user, $coach, $wallet,
-$room, $tokenCost, $isIntroSession, $pricing) {
+$room, $tokenCost, $isIntroSession, $pricing, $validated) {
               $session = CoachingSession::create([
                   'client_id' => $user->id,
                   'coach_id' => $coach->id,
@@ -264,6 +271,19 @@ $room, $tokenCost, $isIntroSession, $pricing) {
                   'price_amount' => $tokenCost,
                   'price_currency' => 'TOKEN',
                   'is_intro_session' => $isIntroSession,
+            ]);
+
+            SessionRequest::create([
+                'client_id' => $user->id,
+                'preferred_coach_id' => $coach->id,
+                'assigned_coach_id' => $coach->id,
+                'approved_session_id' => $session->id,
+                'status' => 'approved',
+                'goal_summary' => $validated['goal_summary'] ?? '',
+                'request_notes' => $validated['request_notes'] ?? '',
+                'viewer_timezone' => 'UTC',
+                'scheduled_time' => now(),
+                'approved_at' => now(),
             ]);
 
             SessionVideoDetail::create([
@@ -288,7 +308,7 @@ $room, $tokenCost, $isIntroSession, $pricing) {
                 ],
             ]);
 
-            return $session->load(['coach', 'videoDetail', 'recording']);
+            return $session->load(['coach', 'videoDetail', 'recording', 'introRequest',]);
       });
 
       $this->notificationService->sessionBooked($session);
@@ -336,6 +356,15 @@ self::FIXED_DURATION_MINUTES),
               'transcript_available' => filled($recording->transcript),
               'recording_url' => $recording->recording_url,
           ] : null,
+
+          'intro_request' => $session->introRequest ? [
+              'id' => $session->introRequest->id,
+              'goal_summary' => $session->introRequest->goal_summary,
+              'primary_goal' => $session->introRequest->primary_goal,
+              'current_challenges' => $session->introRequest->current_challenges,
+              'success_definition' => $session->introRequest->success_definition,
+          ] : null,
+          
           'created_at' => optional($session->created_at)?->toISOString(),
       ];
 
