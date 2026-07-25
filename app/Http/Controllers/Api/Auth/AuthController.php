@@ -29,10 +29,11 @@ class AuthController extends BaseController
             'name' => 'required',
             'email' => 'required|email|unique:users',
             'password' => 'required|min:6|confirmed',
-            'role' => 'required|in:client',
+            'role' => 'required|in:client,coach',
             'accept_terms' => 'required|accepted',
             'accept_privacy_policy' => 'required|accepted',
             'accept_coaching_disclaimer' => 'required|accepted',
+            'acknowledge_coach_independence' => 'exclude_unless:role,coach|required|accepted',
         ]);
 
         $user = User::create([
@@ -46,9 +47,13 @@ class AuthController extends BaseController
             'role' => $request->role,
         ]);
 
-        UserWallet::create([
-            'user_id' => $user->id,
-        ]);
+        if ($request->role == 'client') {
+
+            UserWallet::create([
+                'user_id' => $user->id,
+            ]);
+
+        }
 
         Profile::firstOrCreate(
             ['user_id' => $user->id],
@@ -60,6 +65,29 @@ class AuthController extends BaseController
             ]
         );
 
+        if ($request->role == 'coach') {
+
+            Coach::create([
+                'user_id' => $user->id,
+                'name' => $user->name,
+                'title' => '',
+                'bio' => '',
+                'years_experience' => 1,
+                'specialties' => [],
+                'similar_experiences' => [],
+                'notification_email' => $user->email,
+
+                'timezone' => 'UTC',
+
+                // Client requirement
+                'is_active' => false,
+                'available_now' => false,
+                'status' => 'pending_review',
+                'is_verified' => false,
+            ]);
+
+        }
+
         $token = $user->createToken('api_token')->plainTextToken;
 
         return $this->success([
@@ -70,14 +98,29 @@ class AuthController extends BaseController
 
     public function login(Request $request)
     {
+        $request->validate([
+            'email' => 'required|email',
+            'password' => 'required',
+            'role' => 'required|in:admin,coach,client',
+        ]);
+
         $user = User::where('email', $request->email)->first();
 
         if (!$user || !Hash::check($request->password, $user->password)) {
-            return response()->json(['message' => 'Invalid credentials'], 401);
+            return response()->json([
+                'message' => 'Invalid credentials'
+            ], 401);
+        }
+
+        $userRole = UserRole::where('user_id', $user->id)->value('role');
+
+        if ($userRole !== $request->role) {
+            return response()->json([
+                'message' => 'You are not authorized to login as ' . $request->role
+            ], 403);
         }
 
         $token = $user->createToken('auth_token')->plainTextToken;
-        $role = UserRole::where('user_id', $user->id)->value('role');
 
         return response()->json([
             'data' => [
@@ -86,7 +129,7 @@ class AuthController extends BaseController
                     'id' => $user->id,
                     'name' => $user->name,
                     'email' => $user->email,
-                    'role' => $role,
+                    'role' => $userRole,
                 ],
             ],
         ]);
