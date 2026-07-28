@@ -14,6 +14,7 @@ use App\Services\Ai\SessionInsightService;
 use App\Services\Video\DailyRestApiService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
@@ -60,6 +61,57 @@ class AdminController extends BaseController
         return $this->success($users);
     }
 
+    public function changeUserRole(Request $request, $id)
+    {
+        $validated = $request->validate([
+            'role' => ['required', 'in:admin,coach,client'],
+        ]);
+
+        $user = User::findOrFail($id);
+
+        DB::beginTransaction();
+
+        try {
+            UserRole::where('user_id', $user->id)->delete();
+
+            $role = UserRole::create([
+                'user_id' => $user->id,
+                'role' => $validated['role'],
+                'assigned_by' => Auth::id(),
+                'assigned_at' => now(),
+            ]);
+
+            if ($validated['role'] === 'coach' && !$user->coachProfile()->exists()) {
+                Coach::firstOrCreate(
+                    ['user_id' => $user->id],
+                    [
+                        'name' => $user->name,
+                        'title' => 'Coach',
+                        'bio' => 'Coach profile created by admin.',
+                        'years_experience' => 1,
+                        'specialties' => [],
+                        'similar_experiences' => [],
+                        'notification_email' => $user->email,
+                        'timezone' => 'UTC',
+                        'is_active' => true,
+                        'available_now' => false,
+                    ]
+                );
+            }
+
+            DB::commit();
+
+            return $this->success([
+                'user' => $user->load(['roles:id,user_id,role']),
+                'role' => $role->role,
+            ], 'User role updated successfully');
+        } catch (\Throwable $e) {
+            DB::rollBack();
+
+            return $this->error('Failed to update user role', 500);
+        }
+    }
+
     public function coaches(Request $request)
     {
         $coaches = Coach::query()
@@ -70,6 +122,18 @@ class AdminController extends BaseController
         return $this->success($coaches);
     }
 
+    public function updateStatus(Request $request, $id)
+    {
+        $coach = Coach::findOrFail($id);
+
+        $coach->is_active = $request->is_active;
+        $coach->save();
+
+        return response()->json([
+            'message' => 'Coach status updated successfully'
+        ]);
+    }
+    
     public function pendingApplications(Request $request)
     {
         $applications = PendingCoachApplication::query()
@@ -560,7 +624,7 @@ class AdminController extends BaseController
                     'specialties' => $existingApplication?->specialties ?? [],
                     'message' => $existingApplication?->message ?? 'Invited by admin',
                     'status' => 'invited',
-                    'reviewed_by' => auth()->id(),
+                    'reviewed_by' => Auth::id(),
                     'reviewed_at' => now(),
                 ]
             );
@@ -649,7 +713,7 @@ class AdminController extends BaseController
 
             $application->update([
                 'status' => 'approved',
-                'reviewed_by' => auth()->id(),
+                'reviewed_by' => Auth::id(),
                 'reviewed_at' => now(),
             ]);
 

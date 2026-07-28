@@ -135,7 +135,7 @@ class CoachController extends BaseController
 
         return $this->profile($request);
     }
-
+    
     public function show($id)
     {
         $coach = Coach::findOrFail($id);

@@ -10,9 +10,11 @@ Route::prefix('admin')
     ->middleware(['auth:sanctum', 'role:admin'])
     ->group(function () {
         Route::get('/users', [AdminController::class, 'users']);
+        Route::post('/users/{id}/role', [AdminController::class, 'changeUserRole']);
         Route::get('/coaches', [AdminController::class, 'coaches']);
         Route::get('/pending-applications', [AdminController::class, 'pendingApplications']);
         Route::post('/coaches/invite', [AdminController::class, 'inviteCoach']);
+        Route::put('/coaches/{id}/status', [AdminController::class, 'updateStatus']);
         Route::post('/approve-coach/{id}', [AdminController::class, 'approveApplication']);
 
         Route::get('/session-requests', [SessionRequestAdminController::class, 'index']);
