@@ -26,6 +26,13 @@ class DailyWebhookController extends Controller
     {
         $event = $request->all();
 
+        Log::info('RAW DAILY REQUEST', [
+            'method' => $request->method(),
+            'headers' => $request->headers->all(),
+            'raw_body' => $request->getContent(),
+            'parsed_body' => $event,
+        ]);
+
         Log::info('Daily webhook entered controller', [
                 'headers' => [
                     'signature' => $request->header('X-Webhook-Signature'),
@@ -119,6 +126,12 @@ class DailyWebhookController extends Controller
         $recording = $this->ensureRecording($session);
 
         try {
+
+            Log::info('DAILY EVENT TYPE RECEIVED', [
+                'event_type' => $eventType,
+                'payload' => $payload,
+            ]);
+
             match ($eventType) {
                 'transcript.started' => $this->handleTranscriptStarted($recording, $payload),
                 'transcript.ready-to-download' => $this->handleTranscriptReady($session, $recording, $payload),
@@ -217,6 +230,14 @@ class DailyWebhookController extends Controller
 
     private function handleTranscriptReady(CoachingSession $session, SessionRecording $recording, array $payload): void
     {
+        Log::info('TRANSCRIPT READY RAW PAYLOAD', [
+            'payload' => $payload,
+        ]);
+    
+        Log::info('DAILY REAL TRANSCRIPT READY PAYLOAD', [
+            'payload' => $payload,
+        ]);
+        
         $transcriptId = $this->extractTranscriptId($payload);
         $transcriptInstanceId = $this->extractInstanceId($payload);
 
@@ -385,7 +406,21 @@ class DailyWebhookController extends Controller
         return $event;
     }
 
-    foreach (['id', 'type', 'room_name', 'room_id', 'instance_id', 'instanceId', 'mtg_session_id'] as $key) {
+    foreach ([
+        'id',
+        'type',
+        'room_name',
+        'room_id',
+        'instance_id',
+        'instanceId',
+        'mtg_session_id',
+        'download_url',
+        'download_link',
+        'access_link',
+        'link',
+        'duration',
+        'out_params'
+    ] as $key) {
         if (!array_key_exists($key, $payload) && array_key_exists($key, $event)) {
             $payload[$key] = $event[$key];
         }
@@ -462,13 +497,16 @@ private function extractTranscriptAccessLink(array $payload): ?string
     foreach ([
         $payload['access_link'] ?? null,
         $payload['download_link'] ?? null,
+        $payload['download_url'] ?? null,
         $payload['link'] ?? null,
         $payload['url'] ?? null,
         data_get($payload, 'out_params.access_link'),
         data_get($payload, 'out_params.download_link'),
+        data_get($payload, 'out_params.download_url'),
         data_get($payload, 'out_params.link'),
         data_get($payload, 'transcript.access_link'),
         data_get($payload, 'transcript.download_link'),
+        data_get($payload, 'transcript.download_url'),
         data_get($payload, 'transcript.link'),
         data_get($payload, 'download.link'),
     ] as $value) {

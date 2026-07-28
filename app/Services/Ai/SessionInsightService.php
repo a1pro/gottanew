@@ -140,12 +140,12 @@ class SessionInsightService
             return $recording->fresh();
         }
 
-        $goals = UserGoal::query()
+        $goal = UserGoal::query()
             ->where('user_id', $session->client_id)
-            ->orderByRaw("CASE WHEN status = 'active' THEN 0 ELSE 1 END")
-            ->latest()
-            ->take(3)
-            ->get();
+            ->where('source_session_id', $session->id)
+            ->first();
+        
+        $goals = $goal ? collect([$goal]) : collect();
 
         $sourceText = trim(implode("\n", array_filter([
             $this->cleanText((string) $recording->transcript),
@@ -158,6 +158,16 @@ class SessionInsightService
         $nextActions = $this->extractActionItems($sourceText, $goals);
         $keyTopics = $this->extractKeywords($sourceText ?: $goals->pluck('title')->implode(' '));
 
+        $formattedActions = array_map(function ($item) {
+
+        if (is_array($item)) {
+            return "- " . ($item['goal_title'] ? $item['goal_title'] . ": " : "") . $item['action'];
+        }
+
+        return "- " . $item;
+
+        }, $nextActions);
+
         $postSummaryLines = [
             "Session summary:",
             $summarySentence,
@@ -166,7 +176,7 @@ class SessionInsightService
             ...array_map(fn ($item) => "- {$item}", $keyDecisions),
             "",
             "Next actions:",
-            ...array_map(fn ($item) => "- {$item}", $nextActions),
+            ...$formattedActions,
         ];
 
         $recording->update([
@@ -380,18 +390,50 @@ class SessionInsightService
             ->all();
 
         if (!empty($actions)) {
-            return $actions;
+        
+            return collect($actions)->map(function ($action) use ($goals) {
+        
+                $goal = $goals->first();
+        
+                return [
+                    'goal_id' => $goal?->id,
+                    'goal_title' => $goal?->title,
+                    'action' => $action,
+                ];
+        
+            })->values()->all();
         }
 
         if ($goals->isNotEmpty()) {
+            // return $goals->take(3)->map(function ($goal) {
+            //     return "Continue making progress on {$goal->title} before the next session.";
+            // })->values()->all();
+
             return $goals->take(3)->map(function ($goal) {
-                return "Continue making progress on {$goal->title} before the next session.";
+
+                return [
+                    'goal_id' => $goal->id,
+                    'goal_title' => $goal->title,
+                    'action' => "Continue making progress on {$goal->title} before the next session.",
+                ];
+            
             })->values()->all();
         }
 
         return [
-            'Review the main insight from this session within 24 hours.',
-            'Choose one concrete action to complete before the next session.',
+            // 'Review the main insight from this session within 24 hours.',
+            // 'Choose one concrete action to complete before the next session.',
+
+            [
+                'goal_id' => null,
+                'goal_title' => null,
+                'action' => 'Review the main insight from this session within 24 hours.',
+            ],
+            [
+                'goal_id' => null,
+                'goal_title' => null,
+                'action' => 'Choose one concrete action to complete before the next session.',
+            ],
         ];
     }
 

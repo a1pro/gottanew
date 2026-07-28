@@ -1374,6 +1374,10 @@ private function canManualRecover(CoachingSession $session, $user): bool
 
     private function startDailyCaptureIfNeeded(CoachingSession $session, bool $force = false): array
 {
+        Log::info('START DAILY CAPTURE CALLED', [
+        'session_id' => $session->id,
+        'room' => optional($session->videoDetail)->daily_room_name,
+    ]);
     $roomName = optional($session->videoDetail)->daily_room_name;
     $recording = $session->recording ?: $this->ensureSessionRecording($session);
     $privacy = is_array($recording->privacy_settings) ? $recording->privacy_settings : [];
@@ -1444,7 +1448,16 @@ private function canManualRecover(CoachingSession $session, $user): bool
 
     if (($privacy['transcription_consent'] ?? 'none') === 'full' && ($force || !in_array($transcriptionStatus, ['active', 'completed'], true))) {
         try {
+            Log::info('ABOUT TO START DAILY TRANSCRIPTION', [
+                'session_id' => $session->id,
+                'room' => $roomName,
+            ]);
             $response = $this->dailyService->startTranscription($roomName);
+
+            Log::info('DAILY START TRANSCRIPTION RESPONSE', [
+                'response' => $response,
+            ]);
+
             $captureStarted['transcription'] = true;
 
             $providerMetadata = array_replace_recursive(

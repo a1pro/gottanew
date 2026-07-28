@@ -4,6 +4,7 @@ namespace App\Services\Video;
 
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Log;
 
 class DailyRestApiService
 {
@@ -344,13 +345,37 @@ class DailyRestApiService
         $http = Http::withToken($apiKey)->acceptJson();
         $url = rtrim(self::BASE_URL, '/') . $path;
 
-        $response = match (strtoupper($method)) {
-            'GET' => $http->get($url, $query),
-            'POST' => $http->send('POST', $url . (empty($query) ? '' : '?' . http_build_query($query)), [
-                'json' => $body,
-            ]),
-            default => throw new \InvalidArgumentException('Unsupported Daily API method: ' . $method),
-        };
+        Log::info('DAILY API REQUEST', [
+            'method' => $method,
+            'url' => $url,
+            'body' => $body,
+        ]);
+
+       
+        try{
+            $response = match (strtoupper($method)) {
+                'GET' => $http->get($url, $query),
+                'POST' => $http->send('POST', $url . (empty($query) ? '' : '?' . http_build_query($query)), [
+                    'json' => $body,
+                ]),
+                default => throw new \InvalidArgumentException('Unsupported Daily API method: ' . $method),
+            };
+
+            Log::info('DAILY API RESPONSE', [
+            'status' => $response->status(),
+            'body' => $response->body(),
+        ]);
+
+        }catch(\Throwable $e){
+
+            Log::info('DAILY API RESPONSE', [
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ]);
+
+            throw $e;
+        }
+
 
         if (!$response->successful()) {
             throw new \RuntimeException('Daily API request failed: ' . ($response->json('info') ?: $response->body()));
