@@ -20,6 +20,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use App\Models\Session\SessionRequest;
+use App\Models\Goal\UserGoal;
 
 class SessionController extends BaseController
 {
@@ -81,128 +82,307 @@ class SessionController extends BaseController
       return $this->success($this->serializeSession($session, true));
   }
 
+  //-------------- old store method functionality ------------ //
+
+//   public function store(Request $request)
+//   {
+//       $user = $request->user();
+
+//       if (!$user) {
+//           return $this->error('Unauthenticated', 401);
+//       }
+
+//       $validated = $request->validate([
+//           'coach_id' => ['required', 'exists:coaches,id'],
+//           'goal_id' => ['required', 'exists:user_goals,id'],
+//           'scheduled_time' => ['required', 'date', 'after:now'],
+//           'viewer_timezone' => ['required', 'string', 'max:100', new TimezoneIdentifier()],
+//           'duration_minutes' => ['nullable', 'integer', 'in:15'],
+//       ]);
+
+//       $coach = Coach::findOrFail($validated['coach_id']);
+
+//       if (!$coach->is_active) {
+//           return $this->error('Coach is not currently available for
+//   booking.', 422);
+//       }
+
+//       $pricing = $this->sessionPricingService->preview((int) $user->id, (int)
+//  $coach->id);
+//       $tokenCost = (int) ($pricing['token_cost'] ??
+//  SessionPricingService::STANDARD_TOKEN_COST);
+//       $isIntroSession = (bool) ($pricing['is_intro_eligible'] ?? false);
+
+//       $wallet = UserWallet::firstOrCreate(
+//           ['user_id' => $user->id],
+//           [
+//               'coin_balance' => 0,
+//               'total_coins_purchased' => 0,
+//               'total_coins_spent' => 0,
+
+//            ]
+//       );
+
+//       if (!$this->shouldSkipTokenChecks() && $tokenCost > 0 && $wallet->coin_balance < $tokenCost) {
+//           return $this->error('You need at least 1 token in your wallet to
+//  book this session.', 422);
+//       }
+
+//       $viewerTimezone = Timezone::normalize($validated['viewer_timezone'] ??
+//  'UTC', 'UTC');
+//       $scheduledStart = CarbonImmutable::parse($validated['scheduled_time']);
+//       $scheduledStartUtc = $scheduledStart->setTimezone('UTC');
+
+//       $slotError = $this->availabilityService->validateRequestedSlot(
+//           $coach,
+//           $scheduledStart,
+//           $viewerTimezone,
+//           self::FIXED_DURATION_MINUTES
+//       );
+
+//       if ($slotError) {
+//           return $this->error($slotError, 422);
+//       }
+
+//       $room = $this->dailyService->createRoom();
+
+//       if (empty($room['name']) || empty($room['url'])) {
+//           return $this->error('Could not create video room', 500);
+//       }
+
+//       $session = DB::transaction(function () use ($user, $coach, $room,
+//  $tokenCost, $isIntroSession, $pricing, $scheduledStartUtc, $viewerTimezone, $validated) {
+//           $session = CoachingSession::create([
+//               'client_id' => $user->id,
+//               'coach_id' => $coach->id,
+//               'duration_minutes' => self::FIXED_DURATION_MINUTES,
+//                  'scheduled_time' => $scheduledStartUtc->toDateTimeString(),
+//                  'scheduled_timezone' => $viewerTimezone,
+//                  'status' => 'scheduled',
+//                  'price_amount' => $tokenCost,
+//                  'price_currency' => 'TOKEN',
+//                  'is_intro_session' => $isIntroSession,
+//            ]);
+
+//           UserGoal::where('id', $validated['goal_id'])
+//               ->where('user_id', $user->id)
+//               ->update([
+//                   'source_session_id' => $session->id,
+//               ]);
+
+//            SessionVideoDetail::create([
+//                'session_id' => $session->id,
+//                'video_room_id' => $room['id'] ?? null,
+
+//                   'video_join_url' => $room['url'],
+//                   'daily_room_name' => $room['name'],
+//                   'room_created_at' => now(),
+//             ]);
+
+//             SessionStateLog::create([
+//                 'session_id' => $session->id,
+//                 'from_state' => null,
+//                 'to_state' => 'scheduled',
+//               'changed_by' => $user->id,
+//               'change_reason' => $isIntroSession ? 'Free intro session
+//  booked' : 'Session booked',
+//               'metadata' => [
+//                   'scheduled_time' => $scheduledStartUtc->toIso8601String(),
+//                   'scheduled_time_in_viewer_timezone' => $scheduledStartUtc->setTimezone($viewerTimezone)->toIso8601String(),
+//                   'duration_minutes' => self::FIXED_DURATION_MINUTES,
+//                   'viewer_timezone' => $viewerTimezone,
+//                   'billing' => $pricing,
+//               ],
+//           ]);
+
+//             return $session->load([
+//                 'coach',
+//                 'videoDetail',
+//                 'recording',
+//                 'introRequest.preferredCoach:id,name,title,timezone',
+//                 'introRequest.assignedCoach:id,name,title,timezone',
+//             ]);
+//       });
+
+//       $this->notificationService->sessionBooked($session);
+
+//       return $this->success(
+//           $this->serializeSession($session),
+//           $isIntroSession ? 'Free intro session booked successfully' :
+//  'Session booked successfully'
+//       );
+//   }
+
+
+  //-------------- new store method functionality ------------ //
+
   public function store(Request $request)
-  {
-      $user = $request->user();
+{
+    $user = $request->user();
 
-      if (!$user) {
-          return $this->error('Unauthenticated', 401);
-      }
+    if (!$user) {
+        return $this->error('Unauthenticated', 401);
+    }
 
-      $validated = $request->validate([
-          'coach_id' => ['required', 'exists:coaches,id'],
-          'scheduled_time' => ['required', 'date', 'after:now'],
-          'viewer_timezone' => ['required', 'string', 'max:100', new
-TimezoneIdentifier()],
-          'duration_minutes' => ['nullable', 'integer', 'in:15'],
-      ]);
+    $validated = $request->validate([
+        'coach_id' => ['required', 'exists:coaches,id'],
 
-      $coach = Coach::findOrFail($validated['coach_id']);
+        // CHANGED: accept goal object instead of goal_id
+        'goal.title' => ['required', 'string', 'max:255'],
+        'goal.category' => ['required', 'string', 'max:100'],
+        'goal.description' => ['nullable', 'string'],
 
-      if (!$coach->is_active) {
-          return $this->error('Coach is not currently available for
-booking.', 422);
-      }
+        'scheduled_time' => ['required', 'date', 'after:now'],
+        'viewer_timezone' => [
+            'required',
+            'string',
+            'max:100',
+            new TimezoneIdentifier()
+        ],
+        'duration_minutes' => ['nullable', 'integer', 'in:15'],
+    ]);
 
-      $pricing = $this->sessionPricingService->preview((int) $user->id, (int)
-$coach->id);
-      $tokenCost = (int) ($pricing['token_cost'] ??
-SessionPricingService::STANDARD_TOKEN_COST);
-      $isIntroSession = (bool) ($pricing['is_intro_eligible'] ?? false);
+    $coach = Coach::findOrFail($validated['coach_id']);
 
-      $wallet = UserWallet::firstOrCreate(
-          ['user_id' => $user->id],
-          [
-              'coin_balance' => 0,
-              'total_coins_purchased' => 0,
-              'total_coins_spent' => 0,
+    if (!$coach->is_active) {
+        return $this->error('Coach is not currently available for booking.', 422);
+    }
 
-           ]
-      );
+    $pricing = $this->sessionPricingService->preview(
+        (int) $user->id,
+        (int) $coach->id
+    );
 
-      if (!$this->shouldSkipTokenChecks() && $tokenCost > 0 && $wallet->coin_balance < $tokenCost) {
-          return $this->error('You need at least 1 token in your wallet to
-book this session.', 422);
-      }
+    $tokenCost = (int) ($pricing['token_cost'] ?? SessionPricingService::STANDARD_TOKEN_COST);
 
-      $viewerTimezone = Timezone::normalize($validated['viewer_timezone'] ??
-'UTC', 'UTC');
-      $scheduledStart = CarbonImmutable::parse($validated['scheduled_time']);
-      $scheduledStartUtc = $scheduledStart->setTimezone('UTC');
+    $isIntroSession = (bool) ($pricing['is_intro_eligible'] ?? false);
 
-      $slotError = $this->availabilityService->validateRequestedSlot(
-          $coach,
-          $scheduledStart,
-          $viewerTimezone,
-          self::FIXED_DURATION_MINUTES
-      );
+    $wallet = UserWallet::firstOrCreate(
+        ['user_id' => $user->id],
+        [
+            'coin_balance' => 0,
+            'total_coins_purchased' => 0,
+            'total_coins_spent' => 0,
+        ]
+    );
 
-      if ($slotError) {
-          return $this->error($slotError, 422);
-      }
+    if (
+        !$this->shouldSkipTokenChecks() &&
+        $tokenCost > 0 &&
+        $wallet->coin_balance < $tokenCost
+    ) {
+        return $this->error(
+            'You need at least 1 token in your wallet to book this session.',
+            422
+        );
+    }
 
-      $room = $this->dailyService->createRoom();
+    $viewerTimezone = Timezone::normalize(
+        $validated['viewer_timezone'] ?? 'UTC',
+        'UTC'
+    );
 
-      if (empty($room['name']) || empty($room['url'])) {
-          return $this->error('Could not create video room', 500);
-      }
+    $scheduledStart = CarbonImmutable::parse($validated['scheduled_time']);
+    $scheduledStartUtc = $scheduledStart->setTimezone('UTC');
 
-      $session = DB::transaction(function () use ($user, $coach, $room,
-$tokenCost, $isIntroSession, $pricing, $scheduledStartUtc, $viewerTimezone) {
-          $session = CoachingSession::create([
-              'client_id' => $user->id,
-              'coach_id' => $coach->id,
-              'duration_minutes' => self::FIXED_DURATION_MINUTES,
-                 'scheduled_time' => $scheduledStartUtc->toDateTimeString(),
-                 'scheduled_timezone' => $viewerTimezone,
-                 'status' => 'scheduled',
-                 'price_amount' => $tokenCost,
-                 'price_currency' => 'TOKEN',
-                 'is_intro_session' => $isIntroSession,
-           ]);
+    $slotError = $this->availabilityService->validateRequestedSlot(
+        $coach,
+        $scheduledStart,
+        $viewerTimezone,
+        self::FIXED_DURATION_MINUTES
+    );
 
-           SessionVideoDetail::create([
-               'session_id' => $session->id,
-               'video_room_id' => $room['id'] ?? null,
+    if ($slotError) {
+        return $this->error($slotError, 422);
+    }
 
-                  'video_join_url' => $room['url'],
-                  'daily_room_name' => $room['name'],
-                  'room_created_at' => now(),
-            ]);
+    $room = $this->dailyService->createRoom();
 
-            SessionStateLog::create([
-                'session_id' => $session->id,
-                'from_state' => null,
-                'to_state' => 'scheduled',
-              'changed_by' => $user->id,
-              'change_reason' => $isIntroSession ? 'Free intro session
-booked' : 'Session booked',
-              'metadata' => [
-                  'scheduled_time' => $scheduledStartUtc->toIso8601String(),
-                  'scheduled_time_in_viewer_timezone' => $scheduledStartUtc->setTimezone($viewerTimezone)->toIso8601String(),
-                  'duration_minutes' => self::FIXED_DURATION_MINUTES,
-                  'viewer_timezone' => $viewerTimezone,
-                  'billing' => $pricing,
-              ],
-          ]);
+    if (empty($room['name']) || empty($room['url'])) {
+        return $this->error('Could not create video room', 500);
+    }
 
-            return $session->load([
-                'coach',
-                'videoDetail',
-                'recording',
-                'introRequest.preferredCoach:id,name,title,timezone',
-                'introRequest.assignedCoach:id,name,title,timezone',
-            ]);
-      });
+    $session = DB::transaction(function () use (
+        $user,
+        $coach,
+        $room,
+        $tokenCost,
+        $isIntroSession,
+        $pricing,
+        $scheduledStartUtc,
+        $viewerTimezone,
+        $validated
+    ) {
 
-      $this->notificationService->sessionBooked($session);
+        $session = CoachingSession::create([
+            'client_id' => $user->id,
+            'coach_id' => $coach->id,
+            'duration_minutes' => self::FIXED_DURATION_MINUTES,
+            'scheduled_time' => $scheduledStartUtc->toDateTimeString(),
+            'scheduled_timezone' => $viewerTimezone,
+            'status' => 'scheduled',
+            'price_amount' => $tokenCost,
+            'price_currency' => 'TOKEN',
+            'is_intro_session' => $isIntroSession,
+        ]);
 
-      return $this->success(
-          $this->serializeSession($session),
-          $isIntroSession ? 'Free intro session booked successfully' :
-'Session booked successfully'
-      );
-  }
+        // NEW: Goal is created ONLY after booking is successful
+    
+       UserGoal::create([
+           'user_id' => $user->id,
+           'title' => $validated['goal']['title'],
+           'category' => $validated['goal']['category'],
+           'description' => $validated['goal']['description'] ?? null,
+           'progress_percentage' => 0,
+           'status' => 'active',
+           'source_session_id' => $session->id,
+       ]);
+
+        SessionVideoDetail::create([
+            'session_id' => $session->id,
+            'video_room_id' => $room['id'] ?? null,
+            'video_join_url' => $room['url'],
+            'daily_room_name' => $room['name'],
+            'room_created_at' => now(),
+        ]);
+
+        SessionStateLog::create([
+            'session_id' => $session->id,
+            'from_state' => null,
+            'to_state' => 'scheduled',
+            'changed_by' => $user->id,
+            'change_reason' => $isIntroSession
+                ? 'Free intro session booked'
+                : 'Session booked',
+            'metadata' => [
+                'scheduled_time' => $scheduledStartUtc->toIso8601String(),
+                'scheduled_time_in_viewer_timezone' => $scheduledStartUtc
+                    ->setTimezone($viewerTimezone)
+                    ->toIso8601String(),
+                'duration_minutes' => self::FIXED_DURATION_MINUTES,
+                'viewer_timezone' => $viewerTimezone,
+                'billing' => $pricing,
+            ],
+        ]);
+
+        return $session->load([
+            'coach',
+            'videoDetail',
+            'recording',
+            'introRequest.preferredCoach:id,name,title,timezone',
+            'introRequest.assignedCoach:id,name,title,timezone',
+        ]);
+    });
+
+    $this->notificationService->sessionBooked($session);
+
+    return $this->success(
+        $this->serializeSession($session),
+        $isIntroSession
+            ? 'Free intro session booked successfully'
+            : 'Session booked successfully'
+    );
+}
 
   public function instant(Request $request)
   {
@@ -215,6 +395,11 @@ booked' : 'Session booked',
 
           $validated = $request->validate([
               'coach_id' => ['required', 'exists:coaches,id'],
+          
+              'goal.title' => ['required', 'string', 'max:255'],
+              'goal.category' => ['required', 'string', 'max:100'],
+              'goal.description' => ['nullable', 'string'],
+          
               'goal_summary' => ['nullable', 'string'],
               'request_notes' => ['nullable', 'string'],
           ]);
@@ -271,6 +456,16 @@ $room, $tokenCost, $isIntroSession, $pricing, $validated) {
                   'price_amount' => $tokenCost,
                   'price_currency' => 'TOKEN',
                   'is_intro_session' => $isIntroSession,
+            ]);
+
+            UserGoal::create([
+                'user_id' => $user->id,
+                'title' => $validated['goal']['title'],
+                'category' => $validated['goal']['category'],
+                'description' => $validated['goal']['description'] ?? null,
+                'progress_percentage' => 0,
+                'status' => 'active',
+                'source_session_id' => $session->id,
             ]);
 
             SessionRequest::create([
