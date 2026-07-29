@@ -383,199 +383,403 @@ class SessionController extends BaseController
     );
 }
 
-    public function instant(Request $request)
-    {
-        try {
-            $user = $request->user();
+    // public function instant(Request $request)
+    // {
+    //     try {
+    //         $user = $request->user();
 
-            if (!$user) {
-                return $this->error('Unauthenticated', 401);
-            }
+    //         if (!$user) {
+    //             return $this->error('Unauthenticated', 401);
+    //         }
 
-          $validated = $request->validate([
-              'coach_id' => ['required', 'exists:coaches,id'],
+    //       $validated = $request->validate([
+    //           'coach_id' => ['required', 'exists:coaches,id'],
           
-              'goal.title' => ['required', 'string', 'max:255'],
-              'goal.category' => ['required', 'string', 'max:100'],
-              'goal.description' => ['nullable', 'string'],
+    //           'goal.title' => ['required', 'string', 'max:255'],
+    //           'goal.category' => ['required', 'string', 'max:100'],
+    //           'goal.description' => ['nullable', 'string'],
           
-              'goal_summary' => ['nullable', 'string'],
-              'request_notes' => ['nullable', 'string'],
-          ]);
+    //           'goal_summary' => ['nullable', 'string'],
+    //           'request_notes' => ['nullable', 'string'],
+    //       ]);
 
-          $coach = Coach::findOrFail($validated['coach_id']);
+    //       $coach = Coach::findOrFail($validated['coach_id']);
 
-        //   if (!$coach->available_now) {
-        //       return $this->error('Coach is not available right now', 422);
-        //   }
+    //     //   if (!$coach->available_now) {
+    //     //       return $this->error('Coach is not available right now', 422);
+    //     //   }
 
-             if (!$coach->immediate_availability) {
-                 return $this->error('Coach is not available right now', 422);
-             }
+    //          if (!$coach->immediate_availability) {
+    //              return $this->error('Coach is not available right now', 422);
+    //          }
 
-          $pricing = $this->sessionPricingService->preview((int) $user->id,
-(int) $coach->id);
-          $tokenCost = (int) ($pricing['token_cost'] ??
-SessionPricingService::STANDARD_TOKEN_COST);
-          $isIntroSession = (bool) ($pricing['is_intro_eligible'] ?? false);
+    //       $pricing = $this->sessionPricingService->preview((int) $user->id,
+    //       (int) $coach->id);
+    //       $tokenCost = (int) ($pricing['token_cost'] ??
+    //       SessionPricingService::STANDARD_TOKEN_COST);
+    //       $isIntroSession = (bool) ($pricing['is_intro_eligible'] ?? false);
 
-          $wallet = UserWallet::firstOrCreate(
-              ['user_id' => $user->id],
-              [
-                  'coin_balance' => 0,
-                  'total_coins_purchased' => 0,
-                  'total_coins_spent' => 0,
-              ]
-          );
+    //       $wallet = UserWallet::firstOrCreate(
+    //           ['user_id' => $user->id],
+    //           [
+    //               'coin_balance' => 0,
+    //               'total_coins_purchased' => 0,
+    //               'total_coins_spent' => 0,
+    //           ]
+    //       );
 
-          if (!$this->shouldSkipTokenChecks() && $tokenCost > 0 && $wallet->coin_balance < $tokenCost) {
-              return $this->error('Insufficient tokens', 422);
-          }
+    //       if (!$this->shouldSkipTokenChecks() && $tokenCost > 0 && $wallet->coin_balance < $tokenCost) {
+    //           return $this->error('Insufficient tokens', 422);
+    //       }
 
-          $room = $this->dailyService->createRoom();
+    //       $room = $this->dailyService->createRoom();
 
-          if (empty($room['name']) || empty($room['url'])) {
-              return response()->json([
-                  'success' => false,
-                  'message' => 'Could not create video room',
-                  'room_response' => $room,
-              ], 500);
-          }
+    //       if (empty($room['name']) || empty($room['url'])) {
+    //           return response()->json([
+    //               'success' => false,
+    //               'message' => 'Could not create video room',
+    //               'room_response' => $room,
+    //           ], 500);
+    //       }
        
-          $session = DB::transaction(function () use ($user, $coach, $wallet,
-$room, $tokenCost, $isIntroSession, $pricing, $validated) {
-              $session = CoachingSession::create([
-                  'client_id' => $user->id,
-                  'coach_id' => $coach->id,
-                  'duration_minutes' => self::FIXED_DURATION_MINUTES,
-                  'scheduled_time' => now()->toDateTimeString(),
+    //       $session = DB::transaction(function () use ($user, $coach, $wallet,
+    //       $room, $tokenCost, $isIntroSession, $pricing, $validated) {
+    //           $session = CoachingSession::create([
+    //               'client_id' => $user->id,
+    //               'coach_id' => $coach->id,
+    //               'duration_minutes' => self::FIXED_DURATION_MINUTES,
+    //               'scheduled_time' => now()->toDateTimeString(),
 
-                  'scheduled_timezone' => 'UTC',
-                  'status' => 'scheduled',
-                  'price_amount' => $tokenCost,
-                  'price_currency' => 'TOKEN',
-                  'is_intro_session' => $isIntroSession,
+    //               'scheduled_timezone' => 'UTC',
+    //               'status' => 'scheduled',
+    //               'price_amount' => $tokenCost,
+    //               'price_currency' => 'TOKEN',
+    //               'is_intro_session' => $isIntroSession,
+    //         ]);
+
+    //         UserGoal::create([
+    //             'user_id' => $user->id,
+    //             'title' => $validated['goal']['title'],
+    //             'category' => $validated['goal']['category'],
+    //             'description' => $validated['goal']['description'] ?? null,
+    //             'progress_percentage' => 0,
+    //             'status' => 'active',
+    //             'source_session_id' => $session->id,
+    //         ]);
+
+    //         SessionRequest::create([
+    //             'client_id' => $user->id,
+    //             'preferred_coach_id' => $coach->id,
+    //             'assigned_coach_id' => $coach->id,
+    //             'approved_session_id' => $session->id,
+    //             'status' => 'approved',
+    //             'goal_summary' => $validated['goal_summary'] ?? '',
+    //             'request_notes' => $validated['request_notes'] ?? '',
+    //             'viewer_timezone' => 'UTC',
+    //             'scheduled_time' => now(),
+    //             'approved_at' => now(),
+    //         ]);
+
+    //         if (!$coach->available_now) {
+    //             return $this->error('Coach is not available right now', 422);
+    //         }
+
+    //         $pricing = $this->sessionPricingService->preview(
+    //             (int) $user->id,
+    //             (int) $coach->id
+    //         );
+    //         $tokenCost = (int) ($pricing['token_cost'] ??
+    //             SessionPricingService::STANDARD_TOKEN_COST);
+    //         $isIntroSession = (bool) ($pricing['is_intro_eligible'] ?? false);
+
+    //         $wallet = UserWallet::firstOrCreate(
+    //             ['user_id' => $user->id],
+    //             [
+    //                 'coin_balance' => 0,
+    //                 'total_coins_purchased' => 0,
+    //                 'total_coins_spent' => 0,
+    //             ]
+    //         );
+
+    //         if (!$this->shouldSkipTokenChecks() && $tokenCost > 0 && $wallet->coin_balance < $tokenCost) {
+    //             return $this->error('Insufficient tokens', 422);
+    //         }
+
+    //         $room = $this->dailyService->createRoom();
+
+    //         if (empty($room['name']) || empty($room['url'])) {
+    //             return response()->json([
+    //                 'success' => false,
+    //                 'message' => 'Could not create video room',
+    //                 'room_response' => $room,
+    //             ], 500);
+    //         }
+
+    //         $session = DB::transaction(function () use (
+    //             $user,
+    //             $coach,
+    //             $wallet,
+    //             $room,
+    //             $tokenCost,
+    //             $isIntroSession,
+    //             $pricing
+    //         ) {
+    //             $session = CoachingSession::create([
+    //                 'client_id' => $user->id,
+    //                 'coach_id' => $coach->id,
+    //                 'duration_minutes' => self::FIXED_DURATION_MINUTES,
+    //                 'scheduled_time' => now()->toDateTimeString(),
+
+    //                 'scheduled_timezone' => 'UTC',
+    //                 'status' => 'scheduled',
+    //                 'price_amount' => $tokenCost,
+    //                 'price_currency' => 'TOKEN',
+    //                 'is_intro_session' => $isIntroSession,
+    //             ]);
+
+    //             SessionVideoDetail::create([
+    //                 'session_id' => $session->id,
+    //                 'video_room_id' => $room['id'] ?? null,
+    //                 'video_join_url' => $room['url'],
+    //                 'daily_room_name' => $room['name'],
+    //                 'room_created_at' => now(),
+    //             ]);
+
+    //             SessionStateLog::create([
+    //                 'session_id' => $session->id,
+    //                 'from_state' => null,
+    //                 'to_state' => 'scheduled',
+    //                 'changed_by' => $user->id,
+    //                 'change_reason' => 'Instant session booked',
+    //                 'metadata' => [
+    //                     'scheduled_time' => now()->toIso8601String(),
+    //                     'duration_minutes' => self::FIXED_DURATION_MINUTES,
+    //                     'viewer_timezone' => 'UTC',
+    //                     'billing' => $pricing,
+    //                 ],
+    //             ]);
+
+    //             return $session->load(['coach', 'videoDetail', 'recording']);
+    //         });
+
+    //         $this->notificationService->sessionBooked($session);
+
+    //         return $this->success(
+    //             $this->serializeSession($session),
+    //             'Instant session booked successfully'
+    //         );
+    //     } catch (\Throwable $exception) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Failed to book instant session',
+    //             'error' => $exception->getMessage(),
+    //         ], 500);
+    //     }
+    //   }
+    // }
+
+    //correct instant function
+    public function instant(Request $request)
+{
+    try {
+        $user = $request->user();
+
+        if (!$user) {
+            return $this->error('Unauthenticated', 401);
+        }
+
+        $validated = $request->validate([
+            'coach_id' => ['required', 'exists:coaches,id'],
+
+            'goal.title' => ['required', 'string', 'max:255'],
+            'goal.category' => ['required', 'string', 'max:100'],
+            'goal.description' => ['nullable', 'string'],
+
+            'goal_summary' => ['nullable', 'string'],
+            'request_notes' => ['nullable', 'string'],
+        ]);
+
+
+        $coach = Coach::findOrFail($validated['coach_id']);
+
+
+        if (!$coach->immediate_availability) {
+            return $this->error('Coach is not available right now', 422);
+        }
+
+
+        $pricing = $this->sessionPricingService->preview(
+            (int) $user->id,
+            (int) $coach->id
+        );
+
+
+        $tokenCost = (int) ($pricing['token_cost'] ?? SessionPricingService::STANDARD_TOKEN_COST);
+
+        $isIntroSession = (bool) ($pricing['is_intro_eligible'] ?? false);
+
+
+        $wallet = UserWallet::firstOrCreate(
+            ['user_id' => $user->id],
+            [
+                'coin_balance' => 0,
+                'total_coins_purchased' => 0,
+                'total_coins_spent' => 0,
+            ]
+        );
+
+
+        if (!$this->shouldSkipTokenChecks() 
+            && $tokenCost > 0 
+            && $wallet->coin_balance < $tokenCost
+        ) {
+            return $this->error('Insufficient tokens', 422);
+        }
+
+
+        $room = $this->dailyService->createRoom();
+
+
+        if (empty($room['name']) || empty($room['url'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Could not create video room',
+                'room_response' => $room,
+            ], 500);
+        }
+
+
+
+        $session = DB::transaction(function () use (
+            $user,
+            $coach,
+            $room,
+            $tokenCost,
+            $isIntroSession,
+            $pricing,
+            $validated
+        ) {
+
+            $session = CoachingSession::create([
+                'client_id' => $user->id,
+                'coach_id' => $coach->id,
+                'duration_minutes' => self::FIXED_DURATION_MINUTES,
+                'scheduled_time' => now()->toDateTimeString(),
+
+                'scheduled_timezone' => 'UTC',
+                'status' => 'scheduled',
+
+                'price_amount' => $tokenCost,
+                'price_currency' => 'TOKEN',
+
+                'is_intro_session' => $isIntroSession,
             ]);
+
+
 
             UserGoal::create([
                 'user_id' => $user->id,
                 'title' => $validated['goal']['title'],
                 'category' => $validated['goal']['category'],
                 'description' => $validated['goal']['description'] ?? null,
+
                 'progress_percentage' => 0,
                 'status' => 'active',
+
                 'source_session_id' => $session->id,
             ]);
 
+
+
             SessionRequest::create([
                 'client_id' => $user->id,
+
                 'preferred_coach_id' => $coach->id,
                 'assigned_coach_id' => $coach->id,
+
                 'approved_session_id' => $session->id,
+
                 'status' => 'approved',
+
                 'goal_summary' => $validated['goal_summary'] ?? '',
                 'request_notes' => $validated['request_notes'] ?? '',
+
                 'viewer_timezone' => 'UTC',
+
                 'scheduled_time' => now(),
                 'approved_at' => now(),
             ]);
 
-            if (!$coach->available_now) {
-                return $this->error('Coach is not available right now', 422);
-            }
 
-            $pricing = $this->sessionPricingService->preview(
-                (int) $user->id,
-                (int) $coach->id
-            );
-            $tokenCost = (int) ($pricing['token_cost'] ??
-                SessionPricingService::STANDARD_TOKEN_COST);
-            $isIntroSession = (bool) ($pricing['is_intro_eligible'] ?? false);
 
-            $wallet = UserWallet::firstOrCreate(
-                ['user_id' => $user->id],
-                [
-                    'coin_balance' => 0,
-                    'total_coins_purchased' => 0,
-                    'total_coins_spent' => 0,
-                ]
-            );
+            SessionVideoDetail::create([
+                'session_id' => $session->id,
 
-            if (!$this->shouldSkipTokenChecks() && $tokenCost > 0 && $wallet->coin_balance < $tokenCost) {
-                return $this->error('Insufficient tokens', 422);
-            }
+                'video_room_id' => $room['id'] ?? null,
 
-            $room = $this->dailyService->createRoom();
+                'video_join_url' => $room['url'],
 
-            if (empty($room['name']) || empty($room['url'])) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Could not create video room',
-                    'room_response' => $room,
-                ], 500);
-            }
+                'daily_room_name' => $room['name'],
 
-            $session = DB::transaction(function () use (
-                $user,
-                $coach,
-                $wallet,
-                $room,
-                $tokenCost,
-                $isIntroSession,
-                $pricing
-            ) {
-                $session = CoachingSession::create([
-                    'client_id' => $user->id,
-                    'coach_id' => $coach->id,
+                'room_created_at' => now(),
+            ]);
+
+
+
+            SessionStateLog::create([
+                'session_id' => $session->id,
+
+                'from_state' => null,
+                'to_state' => 'scheduled',
+
+                'changed_by' => $user->id,
+
+                'change_reason' => 'Instant session booked',
+
+                'metadata' => [
+                    'scheduled_time' => now()->toIso8601String(),
+
                     'duration_minutes' => self::FIXED_DURATION_MINUTES,
-                    'scheduled_time' => now()->toDateTimeString(),
 
-                    'scheduled_timezone' => 'UTC',
-                    'status' => 'scheduled',
-                    'price_amount' => $tokenCost,
-                    'price_currency' => 'TOKEN',
-                    'is_intro_session' => $isIntroSession,
-                ]);
+                    'viewer_timezone' => 'UTC',
 
-                SessionVideoDetail::create([
-                    'session_id' => $session->id,
-                    'video_room_id' => $room['id'] ?? null,
-                    'video_join_url' => $room['url'],
-                    'daily_room_name' => $room['name'],
-                    'room_created_at' => now(),
-                ]);
+                    'billing' => $pricing,
+                ],
+            ]);
 
-                SessionStateLog::create([
-                    'session_id' => $session->id,
-                    'from_state' => null,
-                    'to_state' => 'scheduled',
-                    'changed_by' => $user->id,
-                    'change_reason' => 'Instant session booked',
-                    'metadata' => [
-                        'scheduled_time' => now()->toIso8601String(),
-                        'duration_minutes' => self::FIXED_DURATION_MINUTES,
-                        'viewer_timezone' => 'UTC',
-                        'billing' => $pricing,
-                    ],
-                ]);
 
-                return $session->load(['coach', 'videoDetail', 'recording']);
-            });
+            return $session->load([
+                'coach',
+                'videoDetail',
+                'recording'
+            ]);
 
-            $this->notificationService->sessionBooked($session);
+        });
 
-            return $this->success(
-                $this->serializeSession($session),
-                'Instant session booked successfully'
-            );
-        } catch (\Throwable $exception) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to book instant session',
-                'error' => $exception->getMessage(),
-            ], 500);
-        }
+
+
+        $this->notificationService->sessionBooked($session);
+
+
+
+        return $this->success(
+            $this->serializeSession($session),
+            'Instant session booked successfully'
+        );
+
+
+    } catch (\Throwable $exception) {
+
+        return response()->json([
+            'success' => false,
+
+            'message' => 'Failed to book instant session',
+
+            'error' => $exception->getMessage(),
+
+        ], 500);
     }
+}
 
     private function serializeSession(CoachingSession $session, bool
 
