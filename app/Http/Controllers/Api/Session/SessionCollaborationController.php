@@ -332,7 +332,11 @@ class SessionCollaborationController extends BaseController
     private function serializeSession(CoachingSession $session): array
     {
         $fresh = $session->fresh($this->sessionRelations()) ?? $session;
-        return $fresh->toArray();
+        $payload = $fresh->toArray();
+        $payload['source_request'] = $this->serializeSourceRequest($fresh->introRequest);
+        $payload['intro_request'] = $payload['source_request'];
+
+        return $payload;
     }
 
     private function serializeMessage(SessionMessage $message, CoachingSession $session): array
