@@ -27,6 +27,17 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/sessions/{id}/resources', [SessionCollaborationController::class, 'storeResource']);
     Route::delete('/sessions/{id}/resources/{resourceId}', [SessionCollaborationController::class, 'destroyResource']);
 
+    // Managed Resource Library
+    Route::get('/resource-library', [SessionCollaborationController::class, 'managedResources']);
+    Route::post('/resource-library', [SessionCollaborationController::class, 'storeManagedResource']);
+    Route::delete('/resource-library/{resourceId}', [SessionCollaborationController::class, 'destroyManagedResource']);
+
+    // Share managed resource with current session
+    Route::post(
+        '/sessions/{id}/resources/from-library/{resourceId}',
+        [SessionCollaborationController::class, 'shareManagedResource']
+    );
+
     Route::post('/sessions/{id}/consent', [SessionPortalController::class, 'saveConsent']);
     Route::put('/sessions/{id}/recording', [SessionPortalController::class, 'updateRecording']);
     Route::post('/sessions/{id}/sync-daily-assets', [SessionPortalController::class, 'syncDailyAssets']);

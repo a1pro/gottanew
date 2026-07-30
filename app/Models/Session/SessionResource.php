@@ -3,17 +3,19 @@
 namespace App\Models\Session;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Models\ManagedResource;
 
 class SessionResource extends Model
 {
     protected $fillable = [
         'session_id',
-        'created_by',
-        'resource_type',
+        'managed_resource_id',
         'title',
-        'url',
         'description',
         'metadata',
+        'url',
+        'resource_type',
+        'created_by',
     ];
 
     protected $casts = [
@@ -28,5 +30,10 @@ class SessionResource extends Model
     public function creator()
     {
         return $this->belongsTo(\App\Models\User::class, 'created_by');
+    }
+
+    public function managedResource()
+    {
+        return $this->belongsTo(ManagedResource::class);
     }
 }
