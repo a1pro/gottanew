@@ -10,6 +10,8 @@ use App\Models\User;
 use App\Services\Communication\NotificationService;
 use Illuminate\Http\Request;
 use Laravel\Sanctum\PersonalAccessToken;
+use App\Models\ManagedResource;
+use App\Models\Core\UserRole;
 
 class SessionCollaborationController extends BaseController
 {
@@ -360,6 +362,7 @@ class SessionCollaborationController extends BaseController
         return [
             'id' => $resource->id,
             'session_id' => $resource->session_id,
+            'managed_resource_id' => $resource->managed_resource_id,
             'created_by' => $resource->created_by,
             'created_by_name' => optional($resource->creator)->name,
             'created_by_role' => (int) $resource->created_by === (int) $session->client_id ? 'client' : 'coach',
@@ -383,5 +386,143 @@ class SessionCollaborationController extends BaseController
         echo 'data: ' . json_encode($payload, JSON_UNESCAPED_SLASHES) . "\n\n";
 
         @flush();
+    }
+
+    public function managedResources(Request $request)
+    {
+        $user = $request->user();
+    
+        $resources = ManagedResource::with(['creator:id,name,email'])
+            ->where('created_by', $user->id)
+            ->latest()
+            ->get()
+            ->map(function (ManagedResource $resource) {
+                return [
+                    'id' => $resource->id,
+                    'created_by' => $resource->created_by,
+                    'created_by_name' => $resource->creator?->name,
+                    'resource_type' => $resource->resource_type,
+                    'title' => $resource->title,
+                    'url' => $resource->url,
+                    'description' => $resource->description,
+                    'metadata' => $resource->metadata,
+                    'created_at' => $resource->created_at,
+                    'updated_at' => $resource->updated_at,
+                ];
+            })
+            ->values();
+    
+        return $this->success($resources);
+    }
+
+    public function storeManagedResource(Request $request)
+    {
+        $user = $request->user();
+    
+        $role = UserRole::where('user_id', $user->id)->value('role');
+    
+        abort_unless(
+            in_array($role, ['coach', 'admin'], true),
+            403,
+            'Only coaches can create managed resources'
+        );
+    
+        $validated = $request->validate([
+            'resource_type' => ['nullable', 'string', 'in:link,note'],
+            'title' => ['required', 'string', 'max:255'],
+            'url' => ['nullable', 'url', 'max:2048'],
+            'description' => ['nullable', 'string', 'max:5000'],
+            'metadata' => ['nullable', 'array'],
+        ]);
+    
+        $resourceType = $validated['resource_type'] ?? 'link';
+    
+        if ($resourceType === 'link' && empty($validated['url'])) {
+            return $this->error(
+                'A link URL is required for link resources',
+                422
+            );
+        }
+    
+        $resource = ManagedResource::create([
+            'created_by' => $user->id,
+            'resource_type' => $resourceType,
+            'title' => trim($validated['title']),
+            'url' => $validated['url'] ?? null,
+            'description' => $validated['description'] ?? null,
+            'metadata' => $validated['metadata'] ?? null,
+        ])->load('creator:id,name,email');
+    
+        return $this->success([
+            'id' => $resource->id,
+            'created_by' => $resource->created_by,
+            'created_by_name' => $resource->creator?->name,
+            'resource_type' => $resource->resource_type,
+            'title' => $resource->title,
+            'url' => $resource->url,
+            'description' => $resource->description,
+            'metadata' => $resource->metadata,
+            'created_at' => $resource->created_at,
+            'updated_at' => $resource->updated_at,
+        ], 'Managed resource created', 201);
+    }
+
+    public function destroyManagedResource(Request $request, $resourceId)
+    {
+        $user = $request->user();
+    
+        $resource = ManagedResource::where('id', $resourceId)
+            ->where('created_by', $user->id)
+            ->firstOrFail();
+    
+        $resource->delete();
+    
+        return $this->success([], 'Managed resource removed');
+    }
+
+    public function shareManagedResource(Request $request, $id, $resourceId)
+    {
+        $session = $this->getAuthorizedSession($request, $id);
+    
+        abort_unless(
+            $this->isCoachOrAdmin($request, $session),
+            403,
+            'Only coaches can share session resources'
+        );
+    
+        $managedResource = ManagedResource::where('id', $resourceId)
+            ->where('created_by', $request->user()->id)
+            ->firstOrFail();
+    
+        // Prevent duplicate sharing of the same managed resource
+        $alreadyShared = SessionResource::where('session_id', $session->id)
+            ->where('managed_resource_id', $managedResource->id)
+            ->exists();
+    
+        if ($alreadyShared) {
+            return $this->error(
+                'This resource has already been shared with this session.',
+                409
+            );
+        }
+    
+        $resource = SessionResource::create([
+            'session_id' => $session->id,
+            'managed_resource_id' => $managedResource->id,
+            'created_by' => $request->user()->id,
+            'resource_type' => $managedResource->resource_type,
+            'title' => $managedResource->title,
+            'url' => $managedResource->url,
+            'description' => $managedResource->description,
+            'metadata' => $managedResource->metadata,
+        ])->load('creator:id,name,email');
+    
+        $this->notificationService->sessionResource($resource);
+    
+        return $this->success(
+            $this->serializeResource($resource, $session),
+            'Resource shared with session',
+            201
+        );
     }
 }
