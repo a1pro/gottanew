@@ -18,6 +18,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Storage;
 
 class AuthController extends BaseController
 {
@@ -160,6 +161,9 @@ class AuthController extends BaseController
             'full_name' => $profile->full_name ?: $user->name,
             'bio' => $profile->bio,
             'phone' => $profile->phone ?: $user->phone,
+            'profile_image' => $profile->profile_image
+                               ? asset('storage/' . $profile->profile_image)
+                               : null,
             'notification_method' => $profile->notification_method,
             'email_verified' => (bool) ($profile->email_verified || !empty($user->email_verified_at)),
             'created_at' => optional($user->created_at)?->toISOString(),
@@ -212,6 +216,70 @@ class AuthController extends BaseController
         }
 
         return $this->success($this->me($request)->getData(true)['data'], 'Profile updated');
+    }
+
+    public function uploadProfilePhoto(Request $request)
+    {
+        $request->validate([
+            'photo' => [
+                'required',
+                'image',
+                'mimes:jpg,jpeg,png',
+                'max:2048',
+            ],
+        ], [
+            'photo.mimes' => 'Only JPG, JPEG and PNG images are allowed.',
+            'photo.max' => 'Image size must not exceed 2 MB.',
+        ]);
+    
+        $user = $request->user();
+    
+        $profile = Profile::firstOrCreate(
+            ['user_id' => $user->id],
+            [
+                'full_name' => $user->name,
+                'notification_method' => 'email',
+                'email_verified' => !empty($user->email_verified_at),
+            ]
+        );
+    
+        // Delete previous image if it exists
+        if ($profile->profile_image && Storage::disk('public')->exists($profile->profile_image)) {
+            Storage::disk('public')->delete($profile->profile_image);
+        }
+    
+        // Store new image
+        $path = $request->file('photo')->store('profile-images', 'public');
+    
+        // Save path
+        $profile->update([
+            'profile_image' => $path,
+        ]);
+    
+        return $this->success([
+            'profile_image' => asset('storage/' . $path),
+        ], 'Profile photo uploaded successfully.');
+    }
+
+    public function removeProfilePhoto(Request $request)
+    {
+        $user = $request->user();
+    
+        $profile = Profile::firstOrCreate(
+            ['user_id' => $user->id]
+        );
+    
+        if ($profile->profile_image) {
+    
+            Storage::disk('public')->delete($profile->profile_image);
+    
+            $profile->profile_image = null;
+            $profile->save();
+        }
+    
+        return $this->success([
+            'profile_image' => null,
+        ], 'Profile photo removed successfully.');
     }
 
     public function deleteTranscripts(Request $request)
