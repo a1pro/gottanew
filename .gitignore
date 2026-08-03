@@ -74,3 +74,4 @@ temp_interactive_push.bat
 
 # Laravel config
 /config/cors.php
+.env

@@ -7,10 +7,15 @@ use App\Models\Response\UserResponse;
 use App\Models\Session\CoachingSession;
 use App\Models\Session\SessionRecording;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class SessionInsightService
 {
+    public function __construct(private DeepSeekClient $ai)
+    {
+    }
+
     public function ensureRecording(CoachingSession $session): SessionRecording
     {
         return SessionRecording::firstOrCreate(
@@ -45,6 +50,10 @@ class SessionInsightService
         ];
     }
 
+    // =========================================================================
+    // PRE-SESSION SUMMARY
+    // =========================================================================
+
     public function generatePreSessionSummary(CoachingSession $session, bool $force = false): SessionRecording
     {
         $session->loadMissing(['client', 'coach', 'recording']);
@@ -68,6 +77,84 @@ class SessionInsightService
             ->take(6)
             ->get();
 
+        $aiResult = $this->generatePreSessionViaAi($session, $goals, $responses);
+
+        if ($aiResult) {
+            $recording->update([
+                'pre_session_summary' => $aiResult['summary'],
+                'personality_insights' => $aiResult['personality_insights'],
+                'pre_session_generated_at' => now(),
+            ]);
+
+            // Log::info('Pre-session summary generated via DeepSeek AI', ['session_id' => $session->id]);
+
+            return $recording->fresh();
+        }
+
+        // Log::info('Pre-session summary generated via rule-based fallback', ['session_id' => $session->id]);
+
+        return $this->generatePreSessionFallback($session, $recording, $goals, $responses);
+    }
+
+    private function generatePreSessionViaAi(CoachingSession $session, Collection $goals, Collection $responses): ?array
+    {
+        $goalLines = $goals->map(fn ($g) => trim((string) $g->title))->filter()->values()->all();
+
+        $qa = $responses->map(function ($response) {
+            $question = trim((string) optional($response->question)->question);
+            $answer = $this->cleanText((string) $response->answer);
+            return $question !== '' ? "{$question} => {$answer}" : $answer;
+        })->filter()->values()->all();
+
+        $coach = $session->coach;
+
+        $system = <<<PROMPT
+            You are an assistant preparing a coach for a short 1:1 coaching call. Given the client's goals and their
+            questionnaire answers, produce a concise, practical pre-session briefing.
+
+            Respond ONLY with valid JSON matching this exact shape, no markdown, no extra text:
+            {
+            "summary": "string, plain text, ready to paste as-is, max ~180 words, using this structure:
+                'Client goals:' section, 'Recommended session focus:' section, 'Coach context:' section",
+            "personality_insights": ["short string", "short string", ...]   // max 4 items, each under 20 words
+            }
+            PROMPT;
+
+        $user = json_encode([
+            'client_goals' => $goalLines ?: ['No goals recorded yet — clarify the primary goal at the start.'],
+            'questionnaire_answers' => $qa,
+            'coach_name' => optional($coach)->name ?: 'Coach',
+            'coach_title' => optional($coach)->title ?: 'Coach',
+            'coaching_style' => optional($coach)->coaching_style ?: 'Supportive and goal-focused',
+            'session_length_minutes' => $session->duration_minutes ?? 15,
+        ], JSON_UNESCAPED_UNICODE);
+
+        // Log::info('DeepSeek AI: Generating pre-session summary', ['payload' => $system]);
+
+        $result = $this->ai->generateJson($system, (string) $user, 1500);
+
+        // Log::info('DeepSeek AI: Pre-session summary generated', ['Response' => $result]);
+
+        if (!$result || empty($result['summary']) || !is_string($result['summary'])) {
+            return null;
+        }
+
+        return [
+            'summary' => trim($result['summary']),
+            'personality_insights' => collect($result['personality_insights'] ?? [])
+                ->filter(fn ($item) => is_string($item) && trim($item) !== '')
+                ->take(4)
+                ->values()
+                ->all(),
+        ];
+    }
+
+    /**
+     * Original rule-based implementation, kept as a safety net when the AI call
+     * fails, times out, or returns malformed JSON.
+     */
+    private function generatePreSessionFallback(CoachingSession $session, SessionRecording $recording, Collection $goals, Collection $responses): SessionRecording
+    {
         $goalLines = $goals->isNotEmpty()
             ? $goals->map(fn ($goal) => '- ' . trim($goal->title))->values()->all()
             : ['- Clarify the client’s primary goal in the first few minutes of the session.'];
@@ -127,9 +214,13 @@ class SessionInsightService
             'personality_insights' => $personalitySignals,
             'pre_session_generated_at' => now(),
         ]);
-
+        // Log::info('Pre-session summary generated via DeepSeek AI', ['session_id' => $session->id]);
         return $recording->fresh();
     }
+
+    // =========================================================================
+    // POST-SESSION SUMMARY
+    // =========================================================================
 
     public function generatePostSessionSummary(CoachingSession $session, bool $force = false): SessionRecording
     {
@@ -144,7 +235,7 @@ class SessionInsightService
             ->where('user_id', $session->client_id)
             ->where('source_session_id', $session->id)
             ->first();
-        
+
         $goals = $goal ? collect([$goal]) : collect();
 
         $sourceText = trim(implode("\n", array_filter([
@@ -153,6 +244,90 @@ class SessionInsightService
             $this->cleanText((string) $session->client_notes),
         ])));
 
+        $aiResult = $this->generatePostSessionViaAi($session, $sourceText, $goals);
+
+        if ($aiResult) {
+            $recording->update([
+                'post_session_summary' => $aiResult['summary'],
+                'ai_summary' => $aiResult['summary'],
+                'next_actions' => $aiResult['next_actions'],
+                'key_topics' => $aiResult['key_topics'],
+                'post_session_generated_at' => now(),
+            ]);
+
+            // Log::info('Post-session summary generated via DeepSeek AI', ['session_id' => $session->id]);
+
+            return $recording->fresh();
+        }
+
+        // Log::info('Post-session summary generated via rule-based fallback', ['session_id' => $session->id]);
+
+        return $this->generatePostSessionFallback($session, $recording, $sourceText, $goals);
+    }
+
+    private function generatePostSessionViaAi(CoachingSession $session, string $sourceText, Collection $goals): ?array
+    {
+        if (trim($sourceText) === '' && $goals->isEmpty()) {
+            return null; // nothing to summarize — let the fallback produce sensible defaults
+        }
+
+        $goalContext = $goals->map(fn ($g) => ['id' => $g->id, 'title' => $g->title])->values()->all();
+
+        $system = <<<PROMPT
+                        You are an assistant summarizing a completed 1:1 coaching call for both the coach and the client to review later.
+                        Use only what's in the provided transcript/notes and goals — do not invent details.
+
+                        Respond ONLY with valid JSON matching this exact shape, no markdown, no extra text:
+                        {
+                        "summary": "string, plain text, structure: 'Session summary:' section (2-3 sentences), 'Key decisions:' bullet list, 'Next actions:' bullet list",
+                        "next_actions": [ { "goal_id": number|null, "goal_title": string|null, "action": "string, under 25 words" } ],
+                        "key_topics": ["single word or short phrase", ... up to 6]
+                        }
+                    PROMPT;
+
+        $user = json_encode([
+            'transcript_and_notes' => $this->truncate($sourceText, 6000),
+            'related_goals' => $goalContext,
+            'is_intro_session' => (bool) ($session->is_intro_session ?? false),
+        ], JSON_UNESCAPED_UNICODE);
+
+        // Log::info('DeepSeek AI: Generating post-session summary', ['payload' => $system]);
+        $result = $this->ai->generateJson($system, (string) $user, 1000);
+        // Log::info('DeepSeek AI: Generating post-session summary', ['Response' =>   $result]);
+        if (!$result || empty($result['summary']) || !is_string($result['summary'])) {
+            return null;
+        }
+
+        $nextActions = collect($result['next_actions'] ?? [])
+            ->filter(fn ($item) => is_array($item) && !empty($item['action']))
+            ->map(fn ($item) => [
+                'goal_id' => $item['goal_id'] ?? null,
+                'goal_title' => $item['goal_title'] ?? null,
+                'action' => (string) $item['action'],
+            ])
+            ->take(3)
+            ->values()
+            ->all();
+
+        $keyTopics = collect($result['key_topics'] ?? [])
+            ->filter(fn ($item) => is_string($item) && trim($item) !== '')
+            ->take(6)
+            ->values()
+            ->all();
+
+        return [
+            'summary' => trim($result['summary']),
+            'next_actions' => $nextActions,
+            'key_topics' => $keyTopics,
+        ];
+    }
+
+    /**
+     * Original rule-based implementation, kept as a safety net when the AI call
+     * fails, times out, or returns malformed JSON.
+     */
+    private function generatePostSessionFallback(CoachingSession $session, SessionRecording $recording, string $sourceText, Collection $goals): SessionRecording
+    {
         $summarySentence = $this->buildSummaryLead($sourceText, $goals);
         $keyDecisions = $this->extractDecisionSentences($sourceText, $goals);
         $nextActions = $this->extractActionItems($sourceText, $goals);
@@ -189,6 +364,10 @@ class SessionInsightService
 
         return $recording->fresh();
     }
+
+    // =========================================================================
+    // COACH ASSISTANT PANEL (unchanged — still rule-based, not in scope yet)
+    // =========================================================================
 
     private function buildCoachAssistantPayload(CoachingSession $session, SessionRecording $recording): array
     {
@@ -321,6 +500,10 @@ class SessionInsightService
             ->all();
     }
 
+    // =========================================================================
+    // SHARED HELPERS (unchanged — used by fallbacks and coach assistant panel)
+    // =========================================================================
+
     private function buildSummaryLead(string $text, Collection $goals): string
     {
         $sentences = $this->splitSentences($text);
@@ -390,25 +573,21 @@ class SessionInsightService
             ->all();
 
         if (!empty($actions)) {
-        
+
             return collect($actions)->map(function ($action) use ($goals) {
-        
+
                 $goal = $goals->first();
-        
+
                 return [
                     'goal_id' => $goal?->id,
                     'goal_title' => $goal?->title,
                     'action' => $action,
                 ];
-        
+
             })->values()->all();
         }
 
         if ($goals->isNotEmpty()) {
-            // return $goals->take(3)->map(function ($goal) {
-            //     return "Continue making progress on {$goal->title} before the next session.";
-            // })->values()->all();
-
             return $goals->take(3)->map(function ($goal) {
 
                 return [
@@ -416,14 +595,11 @@ class SessionInsightService
                     'goal_title' => $goal->title,
                     'action' => "Continue making progress on {$goal->title} before the next session.",
                 ];
-            
+
             })->values()->all();
         }
 
         return [
-            // 'Review the main insight from this session within 24 hours.',
-            // 'Choose one concrete action to complete before the next session.',
-
             [
                 'goal_id' => null,
                 'goal_title' => null,
