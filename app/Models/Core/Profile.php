@@ -10,6 +10,7 @@ class Profile extends Model
         'full_name',
         'bio',
         'phone',
+        'profile_image',
         'notification_method',
         'email_verified',
         'legal_version',

@@ -13,6 +13,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 
 class CoachController extends BaseController
 {
@@ -20,7 +21,19 @@ class CoachController extends BaseController
 
     public function index()
     {
-        return Coach::where('is_active', true)->get();
+        $coaches = Coach::with('user.profile')
+            ->where('is_active', true)
+            ->get()
+            ->map(function ($coach) {
+    
+                $coach->profile_image = $coach->user?->profile?->profile_image
+                    ? asset(Storage::url($coach->user->profile->profile_image))
+                    : null;
+    
+                return $coach;
+            });
+    
+        return $this->success($coaches);
     }
 
     public function profile(Request $request)
@@ -45,9 +58,31 @@ class CoachController extends BaseController
             'title' => $coach?->title,
             'bio' => $profile->bio ?: $coach?->bio,
             'phone' => $profile->phone ?: $coach?->notification_phone ?: $user->phone,
+            'profile_image' => $profile->profile_image
+                               ? asset(Storage::url($profile->profile_image))
+                               : null,
             'notification_method' => $profile->notification_method,
             'notification_email' => $coach?->notification_email ?: $user->email,
             'specialties' => $coach?->specialties ?? [],
+            'years_experience' => $coach?->years_experience,
+            'hourly_rate_amount' => $coach?->hourly_rate_amount,
+            
+            'qualifications' => $coach?->qualifications,
+            'expertise_areas' => $coach?->expertise_areas ?? [],
+            'coaching_philosophy' => $coach?->coaching_philosophy,
+            'interests_and_personality' => $coach?->interests_and_personality,
+            'preferred_client_types' => $coach?->preferred_client_types ?? [],
+            'industries' => $coach?->industries ?? [],
+            'preferred_challenges' => $coach?->preferred_challenges,
+            
+            'coaching_style' => $coach?->coaching_style,
+            
+            'website' => $coach?->website,
+            'social_links' => $coach?->social_links ?? [],
+            'languages' => $coach?->languages ?? [],
+            
+            'community_involvement' => $coach?->community_involvement,
+            'similar_experiences' => $coach?->similar_experiences ?? [],
             'timezone' => $coach?->timezone,
             'is_active' => (bool) ($coach?->is_active ?? false),
             'available_now' => (bool) ($coach?->available_now ?? false),
@@ -77,8 +112,33 @@ class CoachController extends BaseController
             'full_name' => ['nullable', 'string', 'max:255'],
             'bio' => ['nullable', 'string', 'max:5000'],
             'phone' => ['nullable', 'string', 'max:50'],
+            'profile_image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
             'notification_method' => ['nullable', 'in:email'],
             'title' => ['nullable', 'string', 'max:255'],
+            'years_experience' => ['nullable', 'integer', 'min:0'],
+            'hourly_rate_amount' => ['nullable', 'numeric', 'min:0'],
+            
+            'qualifications' => ['nullable', 'string'],
+            'expertise_areas' => ['nullable', 'array'],
+            'coaching_philosophy' => ['nullable', 'string'],
+            'interests_and_personality' => ['nullable', 'string'],
+            
+            'preferred_client_types' => ['nullable', 'array'],
+            'industries' => ['nullable', 'array'],
+            'preferred_challenges' => ['nullable', 'string'],
+            
+            'coaching_style' => ['nullable', 'string'],
+            
+            'website' => ['nullable', 'url', 'max:255'],
+            'social_links' => ['nullable', 'array'],
+            'social_links.linkedin' => ['nullable', 'url'],
+            'social_links.twitter' => ['nullable', 'url'],
+            'social_links.instagram' => ['nullable', 'url'],
+            'social_links.facebook' => ['nullable', 'url'],
+            'languages' => ['nullable', 'array'],
+            
+            'community_involvement' => ['nullable', 'string'],
+            'similar_experiences' => ['nullable', 'array'],
             'specialties' => ['nullable', 'array'],
             'timezone' => ['nullable', 'string', 'max:100', new TimezoneIdentifier()],
             'available_now' => ['nullable', 'boolean'],
@@ -90,10 +150,19 @@ class CoachController extends BaseController
             'acknowledge_coach_independence' => ['nullable', 'boolean'],
         ]);
 
+
+
+        if ($request->hasFile('profile_image')) {
+            $path = $request->file('profile_image')->store('profile-images', 'public');
+        
+            $validated['profile_image'] = $path;
+        }
+
         $profile->update([
             'full_name' => $validated['full_name'] ?? $profile->full_name,
             'bio' => $validated['bio'] ?? $profile->bio,
             'phone' => $validated['phone'] ?? $profile->phone,
+            'profile_image' => $validated['profile_image'] ?? $profile->profile_image,
             'notification_method' => $validated['notification_method'] ?? $profile->notification_method,
             'email_verified' => !empty($user->email_verified_at),
             ...$this->resolveLegalUpdates($profile, $validated),
@@ -121,6 +190,26 @@ class CoachController extends BaseController
                 'name' => $validated['full_name'] ?? $coach->name,
                 'title' => $validated['title'] ?? $coach->title,
                 'bio' => $validated['bio'] ?? $coach->bio,
+                'years_experience' => $validated['years_experience'] ?? $coach->years_experience,
+                'hourly_rate_amount' => $validated['hourly_rate_amount'] ?? $coach->hourly_rate_amount,
+                
+                'qualifications' => $validated['qualifications'] ?? $coach->qualifications,
+                'expertise_areas' => $validated['expertise_areas'] ?? $coach->expertise_areas,
+                'coaching_philosophy' => $validated['coaching_philosophy'] ?? $coach->coaching_philosophy,
+                'interests_and_personality' => $validated['interests_and_personality'] ?? $coach->interests_and_personality,
+                
+                'preferred_client_types' => $validated['preferred_client_types'] ?? $coach->preferred_client_types,
+                'industries' => $validated['industries'] ?? $coach->industries,
+                'preferred_challenges' => $validated['preferred_challenges'] ?? $coach->preferred_challenges,
+                
+                'coaching_style' => $validated['coaching_style'] ?? $coach->coaching_style,
+                
+                'website' => $validated['website'] ?? $coach->website,
+                'social_links' => $validated['social_links'] ?? $coach->social_links,
+                'languages' => $validated['languages'] ?? $coach->languages,
+                
+                'community_involvement' => $validated['community_involvement'] ?? $coach->community_involvement,
+                'similar_experiences' => $validated['similar_experiences'] ?? $coach->similar_experiences,
                 'notification_phone' => $validated['phone'] ?? $coach->notification_phone,
                 'notification_email' => $user->email,
                 'specialties' => $validated['specialties'] ?? $coach->specialties,
@@ -135,12 +224,47 @@ class CoachController extends BaseController
 
         return $this->profile($request);
     }
+
+    public function removeProfilePhoto(Request $request)
+    {
+        $user = $request->user();
+    
+        $profile = Profile::firstOrCreate(
+            ['user_id' => $user->id],
+            [
+                'full_name' => $user->name,
+                'notification_method' => 'email',
+                'email_verified' => !empty($user->email_verified_at),
+            ]
+        );
+    
+        if ($profile->profile_image) {
+    
+            // Delete image from storage
+            Storage::disk('public')->delete($profile->profile_image);
+    
+            // Remove image from database
+            $profile->update([
+                'profile_image' => null,
+            ]);
+        }
+    
+        return $this->success([
+            'profile_image' => null,
+        ], 'Profile photo removed successfully.');
+    }
     
     public function show($id)
     {
-        $coach = Coach::findOrFail($id);
-
-        return $this->success($coach);
+        $coach = Coach::with('user.profile')->findOrFail($id);
+    
+        $data = $coach->toArray();
+    
+        $data['profile_image'] = optional($coach->user->profile)->profile_image
+            ? asset(Storage::url($coach->user->profile->profile_image))
+            : null;
+    
+        return $this->success($data);
     }
 
     public function invitation(string $token)
@@ -181,8 +305,26 @@ class CoachController extends BaseController
             'bio' => ['required', 'string'],
             'years_experience' => ['required', 'integer', 'min:1'],
             'specialties' => ['nullable', 'array'],
+            'qualifications' => ['nullable', 'string'],
+            'expertise_areas' => ['nullable', 'array'],
+            'coaching_philosophy' => ['nullable', 'string'],
+            'interests_and_personality' => ['nullable', 'string'],
+            'preferred_client_types' => ['nullable', 'array'],
+            'industries' => ['nullable', 'array'],
+            'preferred_challenges' => ['nullable', 'string'],
+            'coaching_style' => ['nullable', 'string'],
+            'website' => ['nullable', 'url'],
+            'social_links' => ['nullable', 'array'],
+            'social_links.linkedin' => ['nullable', 'url'],
+            'social_links.twitter' => ['nullable', 'url'],
+            'social_links.instagram' => ['nullable', 'url'],
+            'social_links.facebook' => ['nullable', 'url'],
+            'languages' => ['nullable', 'array'],
+            'community_involvement' => ['nullable', 'string'],
+            'similar_experiences' => ['nullable', 'array'],
             'hourly_rate_amount' => ['required', 'numeric', 'min:0'],
             'timezone' => ['required', 'string', 'max:100', new TimezoneIdentifier()],
+            'profile_image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
             'accept_terms' => ['required', 'accepted'],
             'accept_privacy_policy' => ['required', 'accepted'],
             'accept_coaching_disclaimer' => ['required', 'accepted'],
@@ -218,6 +360,14 @@ class CoachController extends BaseController
                 'role' => 'coach',
             ]);
 
+            $profileImage = null;
+            
+            if ($request->hasFile('profile_image')) {
+                $profileImage = $request
+                    ->file('profile_image')
+                    ->store('profile-images', 'public');
+            }
+
             $coach = Coach::updateOrCreate(
                 ['user_id' => $user->id],
                 [
@@ -226,7 +376,19 @@ class CoachController extends BaseController
                     'bio' => $validated['bio'],
                     'years_experience' => $validated['years_experience'],
                     'specialties' => $validated['specialties'] ?? [],
-                    'similar_experiences' => [],
+                    'qualifications' => $validated['qualifications'] ?? null,
+                    'expertise_areas' => $validated['expertise_areas'] ?? [],
+                    'coaching_philosophy' => $validated['coaching_philosophy'] ?? null,
+                    'interests_and_personality' => $validated['interests_and_personality'] ?? null,
+                    'preferred_client_types' => $validated['preferred_client_types'] ?? [],
+                    'industries' => $validated['industries'] ?? [],
+                    'preferred_challenges' => $validated['preferred_challenges'] ?? null,
+                    'coaching_style' => $validated['coaching_style'] ?? null,
+                    'website' => $validated['website'] ?? null,
+                    'social_links' => $validated['social_links'] ?? [],
+                    'languages' => $validated['languages'] ?? [],
+                    'community_involvement' => $validated['community_involvement'] ?? null,
+                    'similar_experiences' => $validated['similar_experiences'] ?? [],
                     'timezone' => Timezone::normalize($validated['timezone'], 'UTC'),
                     'notification_email' => $user->email,
                     'hourly_rate_amount' => $validated['hourly_rate_amount'],
@@ -247,6 +409,7 @@ class CoachController extends BaseController
                 [
                     'full_name' => $validated['name'],
                     'bio' => $validated['bio'],
+                    'profile_image' => $profileImage,
                     'notification_method' => 'email',
                     'email_verified' => !empty($user->email_verified_at),
                     'legal_version' => self::LEGAL_VERSION,

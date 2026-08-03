@@ -5,20 +5,35 @@ class Coach extends Model
 {
     protected $fillable = [
         'user_id','name','title','bio','avatar_url',
-        'years_experience','specialties','similar_experiences',
+        'years_experience','specialties',
+        'qualifications',
+        'expertise_areas',
+        'coaching_philosophy',
+        'interests_and_personality',
+        'preferred_client_types',
+        'industries',
+        'preferred_challenges',
+        'similar_experiences',
         'rating','total_reviews','availability_hours',
-        'timezone','social_links','is_active','available_now',
+        'timezone','website',
+        'social_links','is_active','available_now',
         'calendar_link','notification_email','notification_phone',
         'coaching_expertise','coaching_style',
         'client_challenge_example','personal_experiences',
         'hourly_rate_amount','hourly_rate_currency',
         'hourly_coin_cost','booking_buffer_minutes',
         'max_session_duration','min_session_duration',
-        'immediate_availability','response_preference_minutes'
+        'immediate_availability','response_preference_minutes',
+        'languages',
+        'community_involvement',
     ];
 
     protected $casts = [
         'specialties' => 'array',
+        'expertise_areas' => 'array',
+        'preferred_client_types' => 'array',
+        'industries' => 'array',
+        'languages' => 'array',
         'similar_experiences' => 'array',
         'social_links' => 'array',
         'is_active' => 'boolean',
