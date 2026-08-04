@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\Admin\AdminController;
 use App\Http\Controllers\Api\Admin\PayoutController;
 use App\Http\Controllers\Api\Admin\AdminNotificationController;
 use App\Http\Controllers\Api\Admin\SessionRequestAdminController;
+use App\Http\Controllers\Api\Admin\AiPromptController;
 
 Route::prefix('admin')
     ->middleware(['auth:sanctum', 'role:admin'])
@@ -41,4 +42,9 @@ Route::prefix('admin')
         Route::post('/payout-cycles/generate', [PayoutController::class, 'generate']);
         Route::post('/payout-cycles/{id}/approve', [PayoutController::class, 'approve']);
         Route::post('/payout-cycles/{id}/mark-paid', [PayoutController::class, 'markPaid']);
+       
+        Route::get('ai-prompts', [AiPromptController::class, 'index']);
+        Route::get('ai-prompts/{key}', [AiPromptController::class, 'show']);
+        Route::put('ai-prompts/{key}', [AiPromptController::class, 'update']);
+        Route::post('ai-prompts/{key}/reset', [AiPromptController::class, 'reset']);
     });

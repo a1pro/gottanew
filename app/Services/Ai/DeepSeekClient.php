@@ -61,8 +61,10 @@ class DeepSeekClient
     /**
      * Send a system + user prompt and get back parsed JSON.
      * Returns null on any failure so callers can fall back gracefully.
+     *
+     * @param string|null $model Override the configured default model (e.g. an admin-set per-prompt model).
      */
-    public function generateJson(string $systemPrompt, string $userPrompt, int $maxTokens = 800): ?array
+    public function generateJson(string $systemPrompt, string $userPrompt, int $maxTokens = 800, float $temperature = 0.4, ?string $model = null): ?array
     {
         if (trim($this->apiKey) === '') {
             Log::warning('DeepSeek API key not configured; skipping AI call.');
@@ -73,14 +75,14 @@ class DeepSeekClient
             $response = Http::withToken($this->apiKey)
                 ->timeout(25)
                 ->post("{$this->baseUrl}/chat/completions", [
-                    'model' => $this->model,
+                    'model' => $model ?: $this->model,
                     'messages' => [
                         ['role' => 'system', 'content' => $systemPrompt],
                         ['role' => 'user', 'content' => $userPrompt],
                     ],
                     'response_format' => ['type' => 'json_object'],
                     'max_tokens' => $maxTokens,
-                    'temperature' => 0.4,
+                    'temperature' => $temperature,
                 ]);
 
             if ($response->failed()) {

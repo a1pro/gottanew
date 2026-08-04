@@ -12,8 +12,10 @@ use Illuminate\Support\Str;
 
 class SessionInsightService
 {
-    public function __construct(private DeepSeekClient $ai)
-    {
+    public function __construct(
+        private DeepSeekClient $ai,
+        private AiPromptResolver $prompts,
+    ) {
     }
 
     public function ensureRecording(CoachingSession $session): SessionRecording
@@ -86,12 +88,12 @@ class SessionInsightService
                 'pre_session_generated_at' => now(),
             ]);
 
-            // Log::info('Pre-session summary generated via DeepSeek AI', ['session_id' => $session->id]);
+            Log::info('Pre-session summary generated via DeepSeek AI', ['session_id' => $session->id]);
 
             return $recording->fresh();
         }
 
-        // Log::info('Pre-session summary generated via rule-based fallback', ['session_id' => $session->id]);
+        Log::info('Pre-session summary generated via rule-based fallback', ['session_id' => $session->id]);
 
         return $this->generatePreSessionFallback($session, $recording, $goals, $responses);
     }
@@ -108,17 +110,9 @@ class SessionInsightService
 
         $coach = $session->coach;
 
-        $system = <<<PROMPT
-            You are an assistant preparing a coach for a short 1:1 coaching call. Given the client's goals and their
-            questionnaire answers, produce a concise, practical pre-session briefing.
-
-            Respond ONLY with valid JSON matching this exact shape, no markdown, no extra text:
-            {
-            "summary": "string, plain text, ready to paste as-is, max ~180 words, using this structure:
-                'Client goals:' section, 'Recommended session focus:' section, 'Coach context:' section",
-            "personality_insights": ["short string", "short string", ...]   // max 4 items, each under 20 words
-            }
-            PROMPT;
+        // System prompt comes from the DB (admin-editable), falling back to a
+        // hardcoded default if no row exists or it's deactivated.
+        $promptConfig = $this->prompts->resolve('pre_session_summary');
 
         $user = json_encode([
             'client_goals' => $goalLines ?: ['No goals recorded yet — clarify the primary goal at the start.'],
@@ -129,11 +123,13 @@ class SessionInsightService
             'session_length_minutes' => $session->duration_minutes ?? 15,
         ], JSON_UNESCAPED_UNICODE);
 
-        // Log::info('DeepSeek AI: Generating pre-session summary', ['payload' => $system]);
-
-        $result = $this->ai->generateJson($system, (string) $user, 1500);
-
-        // Log::info('DeepSeek AI: Pre-session summary generated', ['Response' => $result]);
+        $result = $this->ai->generateJson(
+            $promptConfig['system_prompt'],
+            (string) $user,
+            $promptConfig['max_tokens'],
+            $promptConfig['temperature'],
+            $promptConfig['model']
+        );
 
         if (!$result || empty($result['summary']) || !is_string($result['summary'])) {
             return null;
@@ -214,7 +210,7 @@ class SessionInsightService
             'personality_insights' => $personalitySignals,
             'pre_session_generated_at' => now(),
         ]);
-        // Log::info('Pre-session summary generated via DeepSeek AI', ['session_id' => $session->id]);
+
         return $recording->fresh();
     }
 
@@ -255,12 +251,12 @@ class SessionInsightService
                 'post_session_generated_at' => now(),
             ]);
 
-            // Log::info('Post-session summary generated via DeepSeek AI', ['session_id' => $session->id]);
+            Log::info('Post-session summary generated via DeepSeek AI', ['session_id' => $session->id]);
 
             return $recording->fresh();
         }
 
-        // Log::info('Post-session summary generated via rule-based fallback', ['session_id' => $session->id]);
+        Log::info('Post-session summary generated via rule-based fallback', ['session_id' => $session->id]);
 
         return $this->generatePostSessionFallback($session, $recording, $sourceText, $goals);
     }
@@ -273,17 +269,7 @@ class SessionInsightService
 
         $goalContext = $goals->map(fn ($g) => ['id' => $g->id, 'title' => $g->title])->values()->all();
 
-        $system = <<<PROMPT
-                        You are an assistant summarizing a completed 1:1 coaching call for both the coach and the client to review later.
-                        Use only what's in the provided transcript/notes and goals — do not invent details.
-
-                        Respond ONLY with valid JSON matching this exact shape, no markdown, no extra text:
-                        {
-                        "summary": "string, plain text, structure: 'Session summary:' section (2-3 sentences), 'Key decisions:' bullet list, 'Next actions:' bullet list",
-                        "next_actions": [ { "goal_id": number|null, "goal_title": string|null, "action": "string, under 25 words" } ],
-                        "key_topics": ["single word or short phrase", ... up to 6]
-                        }
-                    PROMPT;
+        $promptConfig = $this->prompts->resolve('post_session_summary');
 
         $user = json_encode([
             'transcript_and_notes' => $this->truncate($sourceText, 6000),
@@ -291,9 +277,14 @@ class SessionInsightService
             'is_intro_session' => (bool) ($session->is_intro_session ?? false),
         ], JSON_UNESCAPED_UNICODE);
 
-        // Log::info('DeepSeek AI: Generating post-session summary', ['payload' => $system]);
-        $result = $this->ai->generateJson($system, (string) $user, 1000);
-        // Log::info('DeepSeek AI: Generating post-session summary', ['Response' =>   $result]);
+        $result = $this->ai->generateJson(
+            $promptConfig['system_prompt'],
+            (string) $user,
+            $promptConfig['max_tokens'],
+            $promptConfig['temperature'],
+            $promptConfig['model']
+        );
+
         if (!$result || empty($result['summary']) || !is_string($result['summary'])) {
             return null;
         }
