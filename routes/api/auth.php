@@ -16,6 +16,8 @@ Route::prefix('auth')->group(function () {
         Route::post('/logout', [AuthController::class, 'logout']);
         Route::get('/profile', [AuthController::class, 'me']);
         Route::put('/profile', [AuthController::class, 'updateProfile']);
+        Route::post('/profile/photo', [AuthController::class, 'uploadProfilePhoto']);
+        Route::delete('/profile/photo', [AuthController::class, 'removeProfilePhoto']);
         Route::delete('/profile/transcripts', [AuthController::class, 'deleteTranscripts']);
     });
 
