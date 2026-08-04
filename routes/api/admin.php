@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\Admin\AdminController;
 use App\Http\Controllers\Api\Admin\PayoutController;
 use App\Http\Controllers\Api\Admin\AdminNotificationController;
 use App\Http\Controllers\Api\Admin\SessionRequestAdminController;
+use App\Http\Controllers\Api\Admin\CoachBulkUploadController;
 
 Route::prefix('admin')
     ->middleware(['auth:sanctum', 'role:admin'])
@@ -16,7 +17,7 @@ Route::prefix('admin')
         Route::post('/coaches/invite', [AdminController::class, 'inviteCoach']);
         Route::put('/coaches/{id}/status', [AdminController::class, 'updateStatus']);
         Route::post('/approve-coach/{id}', [AdminController::class, 'approveApplication']);
-
+        Route::post('/coaches/bulk-upload', [CoachBulkUploadController::class, 'upload']);
         Route::get('/session-requests', [SessionRequestAdminController::class, 'index']);
         Route::get('/session-requests/assignable-coaches', [SessionRequestAdminController::class, 'assignableCoaches']);
         Route::post('/session-requests/{id}/approve', [SessionRequestAdminController::class, 'approve']);
