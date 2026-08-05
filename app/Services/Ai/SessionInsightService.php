@@ -63,18 +63,26 @@ class SessionInsightService
             return $recording->fresh();
         }
 
+        // $goals = UserGoal::query()
+        //     ->where('user_id', $session->client_id)
+        //     ->orderByRaw("CASE WHEN status = 'active' THEN 0 ELSE 1 END")
+        //     ->latest()
+        //     ->take(3)
+        //     ->get();
+
         $goals = UserGoal::query()
             ->where('user_id', $session->client_id)
-            ->orderByRaw("CASE WHEN status = 'active' THEN 0 ELSE 1 END")
-            ->latest()
-            ->take(3)
+            ->where('source_session_id', $session->id)
             ->get();
 
+        $userGoalIds = UserGoal::query()
+            ->where('source_session_id', $session->id)
+            ->pluck('id');
+        
         $responses = UserResponse::query()
             ->with('question')
-            ->where('user_id', $session->client_id)
+            ->whereIn('user_goal_id', $userGoalIds)
             ->latest()
-            ->take(6)
             ->get();
 
         $aiResult = $this->generatePreSessionViaAi($session, $goals, $responses);
@@ -86,31 +94,42 @@ class SessionInsightService
                 'pre_session_generated_at' => now(),
             ]);
 
-            // Log::info('Pre-session summary generated via DeepSeek AI', ['session_id' => $session->id]);
-
             return $recording->fresh();
         }
-
-        // Log::info('Pre-session summary generated via rule-based fallback', ['session_id' => $session->id]);
 
         return $this->generatePreSessionFallback($session, $recording, $goals, $responses);
     }
 
     private function generatePreSessionViaAi(CoachingSession $session, Collection $goals, Collection $responses): ?array
     {
-        $goalLines = $goals->map(fn ($g) => trim((string) $g->title))->filter()->values()->all();
+        $goalLines = $goals->map(function ($goal) {
+        
+            return [
+                'title' => $goal->title,
+                'category' => $goal->category,
+                'description' => $goal->description,
+            ];
+        
+        })->values()->all();
 
         $qa = $responses->map(function ($response) {
-            $question = trim((string) optional($response->question)->question);
-            $answer = $this->cleanText((string) $response->answer);
-            return $question !== '' ? "{$question} => {$answer}" : $answer;
-        })->filter()->values()->all();
+        
+            return [
+                'question' => trim((string) optional($response->question)->question),
+                'answer' => $this->cleanText((string) $response->answer),
+            ];
+        
+        })->filter(function ($item) {
+        
+            return !empty($item['answer']);
+        
+        })->values()->all();
 
         $coach = $session->coach;
 
         $system = <<<PROMPT
-            You are an assistant preparing a coach for a short 1:1 coaching call. Given the client's goals and their
-            questionnaire answers, produce a concise, practical pre-session briefing.
+            You are an assistant preparing a coach for a short 1:1 coaching call. Given the client's complete goal information, 
+            category, description, and assessment questionnaire answers, produce a concise, practical pre-session briefing.
 
             Respond ONLY with valid JSON matching this exact shape, no markdown, no extra text:
             {
@@ -129,11 +148,7 @@ class SessionInsightService
             'session_length_minutes' => $session->duration_minutes ?? 15,
         ], JSON_UNESCAPED_UNICODE);
 
-        // Log::info('DeepSeek AI: Generating pre-session summary', ['payload' => $system]);
-
         $result = $this->ai->generateJson($system, (string) $user, 1500);
-
-        // Log::info('DeepSeek AI: Pre-session summary generated', ['Response' => $result]);
 
         if (!$result || empty($result['summary']) || !is_string($result['summary'])) {
             return null;
@@ -214,7 +229,7 @@ class SessionInsightService
             'personality_insights' => $personalitySignals,
             'pre_session_generated_at' => now(),
         ]);
-        // Log::info('Pre-session summary generated via DeepSeek AI', ['session_id' => $session->id]);
+
         return $recording->fresh();
     }
 
@@ -255,12 +270,8 @@ class SessionInsightService
                 'post_session_generated_at' => now(),
             ]);
 
-            // Log::info('Post-session summary generated via DeepSeek AI', ['session_id' => $session->id]);
-
             return $recording->fresh();
         }
-
-        // Log::info('Post-session summary generated via rule-based fallback', ['session_id' => $session->id]);
 
         return $this->generatePostSessionFallback($session, $recording, $sourceText, $goals);
     }
@@ -373,12 +384,38 @@ class SessionInsightService
     {
         $session->loadMissing(['client', 'coach', 'messages', 'resources']);
 
+        // $goals = UserGoal::query()
+        //     ->where('user_id', $session->client_id)
+        //     ->orderByRaw("CASE WHEN status = 'active' THEN 0 ELSE 1 END")
+        //     ->latest()
+        //     ->take(3)
+        //     ->get();
+
         $goals = UserGoal::query()
             ->where('user_id', $session->client_id)
-            ->orderByRaw("CASE WHEN status = 'active' THEN 0 ELSE 1 END")
-            ->latest()
-            ->take(3)
+            ->where('source_session_id', $session->id)
             ->get();
+
+        $userGoalIds = $goals->pluck('id');
+
+        $responses = UserResponse::query()
+            ->with('question')
+            ->whereIn('user_goal_id', $userGoalIds)
+            ->latest()
+            ->get();
+        
+        $assessmentAnswers = $responses
+            ->map(function ($response) {
+                return [
+                    'question' => trim((string) optional($response->question)->question),
+                    'answer' => $this->cleanText((string) $response->answer),
+                ];
+            })
+            ->filter(function ($item) {
+                return !empty($item['answer']);
+            })
+            ->values()
+            ->all();
 
         $focusGoal = $goals->first()?->title;
         $transcript = $this->cleanText((string) $recording->transcript);
@@ -387,9 +424,17 @@ class SessionInsightService
         $keyTopics = collect($recording->key_topics ?? [])->filter()->values()->all();
         $nextActions = collect($recording->next_actions ?? [])->filter()->values()->all();
 
-        $openingFocus = $focusGoal
-            ? "Anchor the session around {$focusGoal} and agree on one concrete outcome before advice-giving."
-            : 'Use the first two minutes to define what would make this short session successful for the client.';
+        $aiAssistant = $this->generateCoachAssistantViaAi(
+            $session,
+            $goals,
+            $assessmentAnswers,
+            $recording
+        );
+
+        $openingFocus = $aiAssistant['opening_focus'] 
+        ?? ($focusGoal
+        ? "Anchor the session around {$focusGoal} and agree on one concrete outcome before advice-giving."
+        : 'Use the first two minutes to define what would make this short session successful for the client.');
 
         if ($session->is_intro_session) {
             $openingFocus = 'Treat this as an intro call: build trust quickly, confirm the main challenge, and end with a clear follow-up recommendation.';
@@ -441,15 +486,16 @@ class SessionInsightService
                 : 'Share one short resource or written recap if the client needs structure after the call.',
         ];
 
-        $suggestedQuestions = $this->buildSuggestedQuestions($focusGoal, $personalityInsights, $keyTopics, $session->is_intro_session);
+       $suggestedQuestions = $aiAssistant['suggested_questions'] ?? $this->buildSuggestedQuestions($focusGoal, $personalityInsights, $keyTopics, $session->is_intro_session);
 
-        $livePrompts = [
-            'Reflect the client’s last key phrase before you move into advice or planning.',
-            'Check confidence: ask what feels realistic in the next 7 days.',
-            $session->is_intro_session
-                ? 'End by confirming whether the client wants another session and what it should focus on.'
-                : 'End by naming the single most important next step and who owns it.',
-        ];
+        $livePrompts = $aiAssistant['live_prompts']
+            ?? [
+                'Reflect the client’s last key phrase before you move into advice or planning.',
+                'Check confidence: ask what feels realistic in the next 7 days.',
+                $session->is_intro_session
+                    ? 'End by confirming whether the client wants another session and what it should focus on.'
+                    : 'End by naming the single most important next step and who owns it.',
+            ];
 
         return [
             'opening_focus' => $openingFocus,
@@ -457,9 +503,71 @@ class SessionInsightService
             'engagement_signals' => $engagementSignals,
             'live_prompts' => $livePrompts,
             'transcript_preview' => $transcript !== '' ? $this->truncate($transcript, 420) : null,
-            'recommended_close' => !empty($nextActions)
-                ? 'Recap the agreed actions out loud and confirm which one the client will do first.'
-                : 'Before ending, ask the client to choose one concrete action and when they will do it.',
+            'recommended_close' => $aiAssistant['recommended_close']
+             ?? (!empty($nextActions)
+             ? 'Recap the agreed actions out loud and confirm which one the client will do first.'
+             : 'Before ending, ask the client to choose one concrete action and when they will do it.'),
+        ];
+    }
+
+    // method for solving ISSUE-008
+    private function generateCoachAssistantViaAi(CoachingSession $session, Collection $goals, array $assessmentAnswers, SessionRecording $recording): ?array
+    {
+        $goalLines = $goals->map(function ($goal) {
+            return [
+                'title' => $goal->title,
+                'category' => $goal->category,
+                'description' => $goal->description,
+            ];
+        })->values()->all();
+    
+        $system = <<<PROMPT
+    You are an expert AI coaching assistant helping a coach prepare and conduct a coaching session.
+    
+    Use the client's coaching objective, assessment answers, transcript (if available), coach notes, personality insights, key topics, and next actions to generate personalized coaching guidance.
+    
+    Respond ONLY with valid JSON.
+    
+    {
+      "opening_focus":"string",
+      "suggested_questions":["string"],
+      "live_prompts":["string"],
+      "recommended_close":"string"
+    }
+    PROMPT;
+    
+        $user = json_encode([
+            'client_goals' => $goalLines,
+            'assessment_answers' => $assessmentAnswers,
+            'transcript' => $this->cleanText((string) $recording->transcript),
+            'coach_notes' => $this->cleanText((string) $session->coach_notes),
+            'personality_insights' => $recording->personality_insights ?? [],
+            'key_topics' => $recording->key_topics ?? [],
+            'next_actions' => $recording->next_actions ?? [],
+            'coach_name' => optional($session->coach)->name,
+            'coach_title' => optional($session->coach)->title,
+            'coach_style' => optional($session->coach)->coaching_style,
+        ], JSON_UNESCAPED_UNICODE);
+    
+        $result = $this->ai->generateJson($system, (string) $user, 1200);
+    
+        if (!$result || !is_array($result)) {
+            return null;
+        }
+    
+        return [
+            'opening_focus' => trim((string) ($result['opening_focus'] ?? '')),
+            'suggested_questions' => collect($result['suggested_questions'] ?? [])
+                ->filter()
+                ->take(5)
+                ->values()
+                ->all(),
+            'live_prompts' => collect($result['live_prompts'] ?? [])
+                ->filter()
+                ->take(3)
+                ->values()
+                ->all(),
+            'recommended_close' => trim((string) ($result['recommended_close'] ?? '')),
         ];
     }
 

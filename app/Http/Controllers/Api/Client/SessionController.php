@@ -21,6 +21,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use App\Models\Session\SessionRequest;
 use App\Models\Goal\UserGoal;
+use Illuminate\Support\Facades\Log;
+use App\Models\Response\UserResponse;
 
 class SessionController extends BaseController
 {
@@ -239,6 +241,12 @@ class SessionController extends BaseController
             new TimezoneIdentifier()
         ],
         'duration_minutes' => ['nullable', 'integer', 'in:15'],
+        'guest_session_id' => ['nullable', 'string', 'max:255'],
+    ]);
+
+    Log::info('BOOK SESSION REQUEST', [
+        'guest_session_id' => $validated['guest_session_id'] ?? null,
+        'user_id' => $user->id,
     ]);
 
     $coach = Coach::findOrFail($validated['coach_id']);
@@ -310,7 +318,8 @@ class SessionController extends BaseController
         $pricing,
         $scheduledStartUtc,
         $viewerTimezone,
-        $validated
+        $validated,
+        $request
     ) {
 
         $session = CoachingSession::create([
@@ -327,15 +336,43 @@ class SessionController extends BaseController
 
         // NEW: Goal is created ONLY after booking is successful
     
-       UserGoal::create([
-           'user_id' => $user->id,
-           'title' => $validated['goal']['title'],
-           'category' => $validated['goal']['category'],
-           'description' => $validated['goal']['description'] ?? null,
-           'progress_percentage' => 0,
-           'status' => 'active',
-           'source_session_id' => $session->id,
-       ]);
+        $goal = UserGoal::create([
+                'user_id' => $user->id,
+                'title' => $validated['goal']['title'],
+                'category' => $validated['goal']['category'],
+                'description' => $validated['goal']['description'] ?? null,
+                'progress_percentage' => 0,
+                'status' => 'active',
+                'source_session_id' => $session->id,
+            ]);
+
+           if (!empty($validated['guest_session_id'])) {
+           
+               Log::info('UPDATING USER RESPONSES', [
+                   'guest_session_id' => $validated['guest_session_id'],
+                   'user_goal_id' => $goal->id,
+                   'user_id' => $user->id,
+               ]);
+           
+               $updated = UserResponse::where(
+                   'guest_session_id',
+                   $validated['guest_session_id']
+               )->update([
+                   'user_id' => $user->id,
+                   'user_goal_id' => $goal->id,
+               ]);
+           
+               Log::info('USER RESPONSE UPDATE COMPLETE', [
+                   'updated_rows' => $updated,
+               ]);
+           
+               Log::info('RESPONSES AFTER UPDATE', [
+                   'responses' => UserResponse::where(
+                       'guest_session_id',
+                       $validated['guest_session_id']
+                   )->get()->toArray(),
+               ]);
+           }
 
         SessionVideoDetail::create([
             'session_id' => $session->id,
@@ -597,7 +634,13 @@ class SessionController extends BaseController
 
             'goal_summary' => ['nullable', 'string'],
             'request_notes' => ['nullable', 'string'],
+            'guest_session_id' => ['nullable', 'string', 'max:255'],
         ]);
+
+        // Log::info('BOOK SESSION REQUEST', [
+        //     'guest_session_id' => $validated['guest_session_id'] ?? null,
+        //     'user_id' => $user->id,
+        // ]);
 
 
         $coach = Coach::findOrFail($validated['coach_id']);
@@ -657,7 +700,8 @@ class SessionController extends BaseController
             $tokenCost,
             $isIntroSession,
             $pricing,
-            $validated
+            $validated,
+            $request
         ) {
 
             $session = CoachingSession::create([
@@ -677,18 +721,43 @@ class SessionController extends BaseController
 
 
 
-            UserGoal::create([
+            $goal = UserGoal::create([
                 'user_id' => $user->id,
                 'title' => $validated['goal']['title'],
                 'category' => $validated['goal']['category'],
                 'description' => $validated['goal']['description'] ?? null,
-
                 'progress_percentage' => 0,
                 'status' => 'active',
-
                 'source_session_id' => $session->id,
             ]);
 
+           if (!empty($validated['guest_session_id'])) {
+           
+               Log::info('UPDATING USER RESPONSES', [
+                   'guest_session_id' => $validated['guest_session_id'],
+                   'user_goal_id' => $goal->id,
+                   'user_id' => $user->id,
+               ]);
+           
+               $updated = UserResponse::where(
+                   'guest_session_id',
+                   $validated['guest_session_id']
+               )->update([
+                   'user_id' => $user->id,
+                   'user_goal_id' => $goal->id,
+               ]);
+           
+               Log::info('UPDATED ROWS', [
+                   'updated_rows' => $updated,
+               ]);
+           
+               Log::info('RESPONSES AFTER UPDATE', [
+                   'responses' => UserResponse::where(
+                       'guest_session_id',
+                       $validated['guest_session_id']
+                   )->get()->toArray(),
+               ]);
+           }
 
 
             SessionRequest::create([
@@ -769,6 +838,13 @@ class SessionController extends BaseController
 
 
     } catch (\Throwable $exception) {
+
+        Log::error('INSTANT SESSION FAILED', [
+        'message' => $exception->getMessage(),
+        'file' => $exception->getFile(),
+        'line' => $exception->getLine(),
+        'trace' => $exception->getTraceAsString(),
+       ]);
 
         return response()->json([
             'success' => false,
