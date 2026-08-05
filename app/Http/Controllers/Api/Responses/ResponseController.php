@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\Response\UserResponse;
 use App\Models\Session\GuestSession;
+use Illuminate\Support\Facades\Log;
 
 class ResponseController extends Controller
 {
@@ -19,6 +20,12 @@ class ResponseController extends Controller
 
         $userId = auth()->check() ? auth()->id() : null;
         $sessionId = $request->guest_session_id;
+
+        Log::info('ASSESSMENT SAVE', [
+            'guest_session_id' => $sessionId,
+            'user_id' => $userId,
+            'answers_count' => count($request->answers),
+        ]);
 
         // create or update guest session
         if ($sessionId) {
@@ -34,6 +41,12 @@ class ResponseController extends Controller
         }
 
         foreach ($request->answers as $answer) {
+
+           Log::info('SAVING ANSWER', [
+               'guest_session_id' => $sessionId,
+               'question_id' => $answer['question_id'],
+               'answer' => $answer['answer'],
+           ]);
 
             UserResponse::updateOrCreate(
                 [

@@ -11,9 +11,10 @@ use App\Models\Goal\Goal;
 class UserResponse extends Model
 {
     protected $fillable = [
-         'user_id',
+        'user_id',
         'guest_session_id',
         'goal_id',
+        'user_goal_id',
         'question_id',
         'answer'
     ];
@@ -26,6 +27,14 @@ class UserResponse extends Model
      public function goal()
     {
         return $this->belongsTo(Goal::class);
+    }
+
+    public function userGoal()
+    {
+        return $this->belongsTo(
+            \App\Models\Goal\UserGoal::class,
+            'user_goal_id'
+        );
     }
 
     public function user()
