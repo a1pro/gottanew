@@ -18,7 +18,6 @@ Homestead.yaml
 
 # IDE
 /.idea
-/.vscode
 /.fleet
 /.nova
 /.zed
@@ -75,3 +74,5 @@ temp_interactive_push.bat
 # Laravel config
 /config/cors.php
 .env
+branch_structure.json
+.gitignore

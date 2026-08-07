@@ -241,7 +241,8 @@ class AdminController extends BaseController
             });
         }
 
-        $summaryBase = CoachingSession::query()->whereHas('recording');
+        // $summaryBase = CoachingSession::query()->whereHas('recording');
+        $summaryBase = clone $query;
 
         $sessions = $query
             ->latest('scheduled_time')
