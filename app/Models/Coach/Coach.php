@@ -64,4 +64,16 @@ class Coach extends Model
     {
         return $this->hasOne(\App\Models\Coach\PendingCoachApplication::class, 'email', 'email');
     }
+
+    public function profile()
+    {
+        return $this->hasOneThrough(
+            \App\Models\Core\Profile::class,
+            \App\Models\User::class,
+            'id',
+            'user_id',
+            'user_id',
+            'id'
+        );
+    }
 }

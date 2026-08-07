@@ -45,7 +45,7 @@ class SessionController extends BaseController
 
         $sessions = $user->clientSessions()
             ->with([
-                'coach',
+                'coach.profile',
                 'videoDetail',
                 'recording',
                 'introRequest.preferredCoach:id,name,title,timezone',
@@ -876,6 +876,7 @@ class SessionController extends BaseController
                 'name' => $session->coach->name,
                 'title' => $session->coach->title,
                 'timezone' => $session->coach->timezone,
+                'profile_image' => $session->coach->profile?->profile_image,
             ] : null,
             'video_detail' => $session->videoDetail ? [
                 'video_join_url' => $session->videoDetail->video_join_url,
