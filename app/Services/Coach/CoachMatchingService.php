@@ -8,11 +8,18 @@ class CoachMatchingService
 {
     public function match($goalId, $responses, $personality = null)
     {
-        $coaches = Coach::where('is_active', true)->get();
+       $coaches = Coach::where('is_active', true)->with('profile')->get();
 
         $results = [];
 
         foreach ($coaches as $coach) {
+
+            \Log::info('Coach Profile Debug', [
+                'coach_id' => $coach->id,
+                'user_id' => $coach->user_id,
+                'profile' => $coach->profile,
+                'profile_image' => $coach->profile?->profile_image,
+            ]);
 
             $score = 0;
 
@@ -108,7 +115,10 @@ class CoachMatchingService
                 'coachName' => $coach->name,
                 'confidenceScore' => $score,
                 'matchReason' => "Strong alignment with your goals and responses.",
-                'coach' => $coach
+                'coach' => [
+                    ...$coach->toArray(),
+                    'profile_image' => $coach->profile?->profile_image
+                ]
             ];
         }
 

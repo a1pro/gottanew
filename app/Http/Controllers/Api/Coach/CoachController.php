@@ -173,6 +173,43 @@ class CoachController extends BaseController
             'phone' => $validated['phone'] ?? $user->phone,
         ]);
 
+        $keepOldIfEmpty = function ($field) use ($validated, $coach) {
+            if (!array_key_exists($field, $validated)) {
+                return $coach->{$field};
+            }
+        
+            $value = $validated[$field];
+        
+            if (is_array($value) && empty($value)) {
+                return $coach->{$field};
+            }
+        
+            if (is_string($value) && trim($value) === '') {
+                return $coach->{$field};
+            }
+        
+            return $value;
+        };
+
+        // Keep old social links when frontend sends empty strings
+        $keepOldSocialLinks = function () use ($validated, $coach) {
+        
+            $oldLinks = $coach->social_links ?? [];
+        
+            $newLinks = $validated['social_links'] ?? [];
+        
+            foreach ($newLinks as $key => $value) {
+        
+                if ($value !== null && trim($value) !== '') {
+                    $oldLinks[$key] = $value;
+                }
+        
+            }
+        
+            return $oldLinks;
+        };
+
+
         if ($coach) {
             $immediateAvailability = array_key_exists('immediate_availability', $validated)
                 ? (bool) $validated['immediate_availability']
@@ -194,25 +231,25 @@ class CoachController extends BaseController
                 'hourly_rate_amount' => $validated['hourly_rate_amount'] ?? $coach->hourly_rate_amount,
                 
                 'qualifications' => $validated['qualifications'] ?? $coach->qualifications,
-                'expertise_areas' => $validated['expertise_areas'] ?? $coach->expertise_areas,
+                'expertise_areas' => $keepOldIfEmpty('expertise_areas'),
                 'coaching_philosophy' => $validated['coaching_philosophy'] ?? $coach->coaching_philosophy,
                 'interests_and_personality' => $validated['interests_and_personality'] ?? $coach->interests_and_personality,
                 
-                'preferred_client_types' => $validated['preferred_client_types'] ?? $coach->preferred_client_types,
-                'industries' => $validated['industries'] ?? $coach->industries,
+                'preferred_client_types' => $keepOldIfEmpty('preferred_client_types'),
+                'industries' => $keepOldIfEmpty('industries'),
                 'preferred_challenges' => $validated['preferred_challenges'] ?? $coach->preferred_challenges,
                 
                 'coaching_style' => $validated['coaching_style'] ?? $coach->coaching_style,
                 
                 'website' => $validated['website'] ?? $coach->website,
-                'social_links' => $validated['social_links'] ?? $coach->social_links,
-                'languages' => $validated['languages'] ?? $coach->languages,
+                'social_links' => $keepOldSocialLinks(),
+                'languages' => $keepOldIfEmpty('languages'),
                 
                 'community_involvement' => $validated['community_involvement'] ?? $coach->community_involvement,
-                'similar_experiences' => $validated['similar_experiences'] ?? $coach->similar_experiences,
+                'similar_experiences' => $keepOldIfEmpty('similar_experiences'),
                 'notification_phone' => $validated['phone'] ?? $coach->notification_phone,
                 'notification_email' => $user->email,
-                'specialties' => $validated['specialties'] ?? $coach->specialties,
+                'specialties' => $keepOldIfEmpty('specialties'),
                 'timezone' => array_key_exists('timezone', $validated)
                     ? Timezone::normalize($validated['timezone'], $coach->timezone ?: 'UTC')
                     : $coach->timezone,
