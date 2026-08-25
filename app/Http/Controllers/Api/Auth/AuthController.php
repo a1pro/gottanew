@@ -19,6 +19,7 @@ use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Storage;
+use App\Models\CoachInformationRequest;
 
 class AuthController extends BaseController
 {
@@ -311,34 +312,193 @@ class AuthController extends BaseController
         return $this->success([], 'Logged out successfully');
     }
 
-    public function coachApply(Request $request)
-    {
-        $request->validate([
-            'name' => 'required',
-            'email' => 'required|email|unique:pending_coach_applications,email',
-            'experience' => 'required',
-            'specialties' => 'required|array',
-            'message' => 'required',
-            'accept_terms' => 'required|accepted',
-            'accept_privacy_policy' => 'required|accepted',
-            'accept_coaching_disclaimer' => 'required|accepted',
-            'acknowledge_coach_independence' => 'required|accepted',
-        ]);
+   public function coachApply(Request $request)
+   {
+       $request->validate([
+           'name' => 'required|string|max:255',
+           'email' => 'required|email',
+           'experience' => 'required|string',
+           'specialties' => 'required|array',
+           'message' => 'required|string',
+        //    'accept_terms' => 'required|accepted',
+        //    'accept_privacy_policy' => 'required|accepted',
+        //    'accept_coaching_disclaimer' => 'required|accepted',
+        //    'acknowledge_coach_independence' => 'required|accepted',
+       ]);
+   
+       $application = PendingCoachApplication::where('email', $request->email)->first();
+   
+       if (!$application) {
+           PendingCoachApplication::create([
+               'name' => $request->name,
+               'email' => $request->email,
+               'phone' => $request->phone,
+               'experience' => $request->experience,
+               'specialties' => $request->specialties,
+               'message' => $request->message,
+               'status' => 'pending',
+           ]);
+   
+           return response()->json([
+               'message' => 'Application submitted successfully',
+           ]);
+       }
+   
+       if ($application->status !== 'needs_information') {
+           return response()->json([
+               'message' => 'An application with this email already exists.',
+           ], 422);
+       }
+   
+       $application->update([
+           'name' => $request->name,
+           'phone' => $request->phone,
+           'experience' => $request->experience,
+           'specialties' => $request->specialties,
+           'message' => $request->message,
+           'status' => 'pending',
+           'reviewed_by' => null,
+           'reviewed_at' => null,
+       ]);
+   
+       $application->informationRequests()
+           ->latest()
+           ->first()?->update([
+               'status' => 'responded',
+           ]);
+   
+       return response()->json([
+           'message' => 'Additional information submitted successfully.',
+       ]);
+   }
 
-        PendingCoachApplication::create([
-            'name' => $request->name,
-            'email' => $request->email,
-            'phone' => $request->phone,
-            'experience' => $request->experience,
-            'specialties' => $request->specialties,
-            'message' => $request->message,
-            'status' => 'pending',
-        ]);
+   public function coachApplication($email)
+   {
+       $application = PendingCoachApplication::with([
+           'informationRequests' => function ($query) {
+               $query->latest();
+           }
+       ])
+       ->where('email', $email)
+       ->first();
+   
+       if (!$application) {
+           return response()->json([
+               'message' => 'Application not found.'
+           ], 404);
+       }
+   
+       return response()->json([
+           'success' => true,
+           'data' => $application,
+       ]);
+   }
 
-        return response()->json([
-            'message' => 'Application submitted successfully',
-        ]);
-    }
+   public function respondToCoachApplication(Request $request, $id)
+   {
+       $validated = $request->validate([
+           'message' => ['required', 'string', 'max:5000'],
+           'attachment' => [
+               'nullable',
+               'file',
+               'mimes:pdf,doc,docx',
+               'max:10240',
+           ],
+       ]);
+   
+       $application = PendingCoachApplication::findOrFail($id);
+   
+       $informationRequest = $application->informationRequests()
+           ->where('status', 'pending')
+           ->latest()
+           ->first();
+   
+       if (!$informationRequest) {
+           return response()->json([
+               'success' => false,
+               'message' => 'No pending information request found for this application.',
+           ], 422);
+       }
+   
+       $attachmentPath = $informationRequest->attachment;
+   
+       if ($request->hasFile('attachment')) {
+           $attachmentPath = $request->file('attachment')
+               ->store('coach-information-requests', 'public');
+       }
+   
+       $informationRequest->update([
+           'status' => 'responded',
+           'coach_response' => $validated['message'],
+           'attachment' => $attachmentPath,
+       ]);
+   
+       return response()->json([
+           'success' => true,
+           'message' => 'Response submitted successfully.',
+           'data' => $informationRequest->fresh(),
+       ]);
+   }
+
+   public function coachInformationRequests(Request $request)
+   {
+       $user = $request->user();
+   
+       $coach = Coach::where('user_id', $user->id)->first();
+   
+       if (!$coach) {
+           return response()->json([
+               'success' => false,
+               'message' => 'Coach profile not found.',
+           ], 404);
+       }
+   
+       $requests = CoachInformationRequest::where('coach_id', $coach->id)
+           ->latest()
+           ->get();
+   
+       return $this->success($requests);
+   }
+
+   public function respondToCoachInformationRequest(Request $request, $id)
+   {
+       $validated = $request->validate([
+           'message' => ['required', 'string', 'max:5000'],
+       ]);
+   
+       $user = $request->user();
+   
+       $coach = Coach::where('user_id', $user->id)->first();
+   
+       if (!$coach) {
+           return response()->json([
+               'success' => false,
+               'message' => 'Coach profile not found.',
+           ], 404);
+       }
+   
+       $informationRequest = CoachInformationRequest::where('id', $id)
+           ->where('coach_id', $coach->id)
+           ->where('status', 'pending')
+           ->first();
+   
+       if (!$informationRequest) {
+           return response()->json([
+               'success' => false,
+               'message' => 'No pending information request found.',
+           ], 404);
+       }
+   
+       $informationRequest->update([
+           'coach_response' => $validated['message'],
+           'status' => 'responded',
+       ]);
+   
+       return $this->success(
+           $informationRequest->fresh(),
+           'Response submitted successfully.'
+       );
+   }
 
     public function approveCoach($id)
     {
