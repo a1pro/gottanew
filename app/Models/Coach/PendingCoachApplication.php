@@ -4,6 +4,7 @@ namespace App\Models\Coach;
 
 use Illuminate\Database\Eloquent\Model;
 use App\Models\User;
+use App\Models\CoachInformationRequest;
 
 class PendingCoachApplication extends Model
 {

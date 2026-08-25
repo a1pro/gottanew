@@ -16,7 +16,8 @@ class Coach extends Model
         'similar_experiences',
         'rating','total_reviews','availability_hours',
         'timezone','website',
-        'social_links','is_active','available_now',
+        'social_links','is_active','available_now', 
+        'approval_status','admin_notes','approved_by','approved_at',
         'calendar_link','notification_email','notification_phone',
         'coaching_expertise','coaching_style',
         'client_challenge_example','personal_experiences',
@@ -37,7 +38,10 @@ class Coach extends Model
         'similar_experiences' => 'array',
         'social_links' => 'array',
         'is_active' => 'boolean',
-        'available_now' => 'boolean'
+        'available_now' => 'boolean',
+        'approval_status' => 'string',
+        'approved_by' => 'integer',
+        'approved_at' => 'datetime',
     ];
 
     public function sessions()
@@ -48,6 +52,14 @@ class Coach extends Model
     public function user()
     {
         return $this->belongsTo(\App\Models\User::class, 'user_id');
+    }
+
+    public function informationRequests()
+    {
+        return $this->hasMany(
+            \App\Models\CoachInformationRequest::class,
+            'coach_id'
+        );
     }
 
     public function packages()
@@ -62,7 +74,11 @@ class Coach extends Model
 
     public function coachApplication()
     {
-        return $this->hasOne(\App\Models\Coach\PendingCoachApplication::class, 'email', 'email');
+        return $this->hasOne(
+            \App\Models\Coach\PendingCoachApplication::class,
+            'email',
+            'notification_email'
+        );
     }
 
     public function profile()

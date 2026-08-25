@@ -13,10 +13,12 @@ Route::prefix('admin')
         Route::get('/users', [AdminController::class, 'users']);
         Route::post('/users/{id}/role', [AdminController::class, 'changeUserRole']);
         Route::get('/coaches', [AdminController::class, 'coaches']);
+        Route::get('/coaches/{id}/information-requests', [AdminController::class, 'coachInformationRequests']);
         Route::get('/pending-applications', [AdminController::class, 'pendingApplications']);
         Route::post('/coaches/invite', [AdminController::class, 'inviteCoach']);
         Route::put('/coaches/{id}/status', [AdminController::class, 'updateStatus']);
         Route::post('/approve-coach/{id}', [AdminController::class, 'approveApplication']);
+        Route::post('/coach-applications/{id}/request-information', [AdminController::class, 'requestInformation']);
         Route::post('/coaches/bulk-upload', [CoachBulkUploadController::class, 'upload']);
         Route::get('/session-requests', [SessionRequestAdminController::class, 'index']);
         Route::get('/session-requests/assignable-coaches', [SessionRequestAdminController::class, 'assignableCoaches']);

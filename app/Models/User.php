@@ -151,4 +151,12 @@ class User extends Authenticatable
     {
         return $this->hasRole('client');
     }
+
+    public function coachInformationRequests()
+    {
+        return $this->hasMany(
+            CoachInformationRequest::class,
+            'admin_id'
+        );
+    }
 }

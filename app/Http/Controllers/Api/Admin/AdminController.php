@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\BaseController;
 use App\Mail\CoachInvitationMail;
 use App\Models\Coach\Coach;
 use App\Models\Coach\PendingCoachApplication;
+use App\Models\CoachInformationRequest;
 use App\Models\Core\UserRole;
 use App\Models\Session\CoachingSession;
 use App\Models\Session\SessionRecording;
@@ -19,6 +20,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
+use App\Models\Communication\UserNotification;
 
 class AdminController extends BaseController
 {
@@ -115,10 +117,15 @@ class AdminController extends BaseController
     public function coaches(Request $request)
     {
         $coaches = Coach::query()
-            ->with('coachApplication')
+            ->with([
+                'coachApplication',
+                'informationRequests' => function ($query) {
+                    $query->latest();
+                },
+            ])
             ->latest()
             ->paginate((int) $request->get('per_page', 10));
-
+    
         return $this->success($coaches);
     }
 
@@ -133,16 +140,33 @@ class AdminController extends BaseController
             'message' => 'Coach status updated successfully'
         ]);
     }
-    
-    public function pendingApplications(Request $request)
-    {
-        $applications = PendingCoachApplication::query()
-            ->whereIn('status', ['pending', 'invited'])
-            ->latest()
-            ->paginate((int) $request->get('per_page', 10));
 
-        return $this->success($applications);
+    public function coachInformationRequests($id)
+    {
+        $coach = Coach::with([
+            'informationRequests' => function ($query) {
+                $query->latest();
+            }
+        ])->findOrFail($id);
+    
+        return $this->success([
+            'coach' => $coach,
+            'information_requests' => $coach->informationRequests,
+        ]);
     }
+    
+   public function pendingApplications(Request $request)
+   {
+       $applications = PendingCoachApplication::whereIn('status', [
+           'pending',
+           'invited',
+           'needs_information'
+       ])
+       ->latest()
+       ->paginate((int) $request->get('per_page', 10));
+   
+       return $this->success($applications);
+   }
 
     public function sessions(Request $request)
     {
@@ -742,6 +766,79 @@ class AdminController extends BaseController
                 'error' => $e->getMessage(),
             ], 500);
         }
+    }
+
+    public function requestInformation(Request $request, $id)
+    {
+        $validated = $request->validate([
+            'message' => ['required', 'string', 'max:2000'],
+        ]);
+    
+        $coach = Coach::findOrFail($id);
+    
+        DB::beginTransaction();
+    
+        try {
+            $informationRequest = CoachInformationRequest::create([
+                'coach_id' => $coach->id,
+                'admin_id' => Auth::id(),
+                'message' => $validated['message'],
+                'status' => 'pending',
+            ]);
+    
+            // Create notification for the coach
+            UserNotification::create([
+                'user_id' => $coach->user_id,
+                'category' => 'coach_communication',
+                'priority' => 'high',
+                'title' => 'Additional Information Requested',
+                'body' => $validated['message'],
+                'action_url' => '/coach-signup-request/' . $informationRequest->id,
+                'channel' => 'in_app',
+                'delivery_status' => 'sent',
+                'sent_at' => now(),
+                'metadata' => [
+                    'information_request_id' => $informationRequest->id,
+                    'coach_id' => $coach->id,
+                ],
+            ]);
+    
+            DB::commit();
+    
+            return $this->success(
+                $informationRequest,
+                'Information request sent successfully.'
+            );
+    
+        } catch (\Throwable $e) {
+            DB::rollBack();
+    
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to request information.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function coachCommunications($coachId)
+    {
+        $coach = Coach::findOrFail($coachId);
+    
+        $communications = CoachInformationRequest::query()
+            ->where('coach_id', $coach->id)
+            ->with('admin:id,name,email')
+            ->orderBy('created_at', 'asc')
+            ->get();
+    
+        return $this->success([
+            'coach' => [
+                'id' => $coach->id,
+                'name' => $coach->name,
+                'email' => $coach->notification_email,
+            ],
+            'communications' => $communications,
+        ]);
     }
 
     private function serializeUser(User $user): array

@@ -14,6 +14,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
+use App\Models\CoachInformationRequest;
 
 class CoachController extends BaseController
 {
@@ -437,6 +438,10 @@ class CoachController extends BaseController
                     'immediate_availability' => false,
                     'available_now' => false,
                     'is_active' => true,
+                    'approval_status' => 'pending',
+                    'admin_notes' => null,
+                    'approved_by' => null,
+                    'approved_at' => null,
                     'response_preference_minutes' => 5,
                 ]
             );
@@ -516,5 +521,32 @@ class CoachController extends BaseController
         }
 
         return $updates;
+    }
+
+    public function respondToInformationRequest(Request $request, $id)
+    {
+        $validated = $request->validate([
+            'coach_response' => ['required', 'string', 'max:2000'],
+        ]);
+    
+        $coach = $request->user()->coachProfile;
+    
+        if (!$coach) {
+            return $this->error('Coach profile not found.', 404);
+        }
+    
+        $requestRecord = CoachInformationRequest::where('id', $id)
+            ->where('coach_id', $coach->id)
+            ->firstOrFail();
+    
+        $requestRecord->update([
+            'coach_response' => $validated['coach_response'],
+            'status' => 'responded',
+        ]);
+    
+        return $this->success(
+            $requestRecord->fresh(),
+            'Response updated successfully.'
+        );
     }
 }

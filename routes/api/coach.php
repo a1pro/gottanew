@@ -23,6 +23,8 @@ Route::prefix('coach')->group(function () {
 Route::prefix('coach')->middleware('auth:sanctum')->group(function () {
     Route::get('/profile', [CoachController::class, 'profile']);
     Route::put('/profile', [CoachController::class, 'update']);
+    Route::post('/information-requests/{id}/respond', [CoachController::class, 'respondToInformationRequest']);
+
     // Route::post('/coach/profile',[CoachController::class, 'updateProfile']);
 
     Route::get('/coaches/{id}/session-pricing', [AvailabilityController::class, 'pricing']);
