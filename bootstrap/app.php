@@ -13,8 +13,15 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
+
+        // Apply impersonate middleware to all API routes 
+        $middleware->api(prepend: [
+            \App\Http\Middleware\Impersonate::class,
+        ]);
+
         $middleware->alias([
             'role' => \App\Http\Middleware\CheckRole::class,
+            'impersonate' => \App\Http\Middleware\Impersonate::class, 
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {

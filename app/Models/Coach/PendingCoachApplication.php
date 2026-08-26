@@ -38,4 +38,12 @@ class PendingCoachApplication extends Model
         return $this->belongsTo(User::class, 'reviewed_by');
     }
 
+    public function informationRequests()
+    {
+        return $this->hasMany(
+            CoachInformationRequest::class,
+            'pending_coach_application_id'
+        );
+    }
+
 }

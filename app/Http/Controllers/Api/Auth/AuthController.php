@@ -153,6 +153,21 @@ class AuthController extends BaseController
             ->pluck('role')
             ->values();
 
+        // Check if user is being impersonated
+        $isImpersonating = !is_null($user->impersonated_by);
+        $impersonatedBy = null;
+        
+        if ($isImpersonating) {
+            $admin = User::find($user->impersonated_by);
+            if ($admin) {
+                $impersonatedBy = [
+                    'id' => $admin->id,
+                    'name' => $admin->name,
+                    'email' => $admin->email,
+                ];
+            }
+        }
+
         return $this->success([
             'id' => $user->id,
             'name' => $user->name,
@@ -170,6 +185,8 @@ class AuthController extends BaseController
             'created_at' => optional($user->created_at)?->toISOString(),
             'last_login_at' => optional($user->last_login_at)?->toISOString(),
             'legal' => $this->formatLegalPayload($profile),
+            'is_impersonating' => $isImpersonating,
+            'impersonated_by' => $impersonatedBy,
         ]);
     }
 
@@ -305,10 +322,25 @@ class AuthController extends BaseController
         return $this->success([], 'Transcripts deleted successfully');
     }
 
+    // public function logout(Request $request)
+    // {
+    //     $request->user()->tokens()->delete();
+
+    //     return $this->success([], 'Logged out successfully');
+    // }
+
     public function logout(Request $request)
     {
-        $request->user()->tokens()->delete();
-
+        $user = $request->user();
+        
+        // If this is an impersonated session, clear impersonated_by
+        if ($user && $user->impersonated_by) {
+            $user->impersonated_by = null;
+            $user->save();
+        }
+        
+        $user->tokens()->delete();
+    
         return $this->success([], 'Logged out successfully');
     }
 
