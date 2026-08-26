@@ -6,6 +6,15 @@ use App\Http\Controllers\Api\Admin\PayoutController;
 use App\Http\Controllers\Api\Admin\AdminNotificationController;
 use App\Http\Controllers\Api\Admin\SessionRequestAdminController;
 use App\Http\Controllers\Api\Admin\CoachBulkUploadController;
+use App\Http\Controllers\Api\Admin\ImpersonateController;
+
+// These routes need to be accessible when impersonating (no admin role required)
+    Route::prefix('admin')
+        ->middleware(['auth:sanctum'])
+        ->group(function () {
+            // Stop impersonating - this must work even when user is not admin
+            Route::post('/impersonate/stop', [ImpersonateController::class, 'stopImpersonating']);
+        });
 
 Route::prefix('admin')
     ->middleware(['auth:sanctum', 'role:admin'])
@@ -44,4 +53,13 @@ Route::prefix('admin')
         Route::post('/payout-cycles/generate', [PayoutController::class, 'generate']);
         Route::post('/payout-cycles/{id}/approve', [PayoutController::class, 'approve']);
         Route::post('/payout-cycles/{id}/mark-paid', [PayoutController::class, 'markPaid']);
+
+        // Get all users (clients + coaches) - OVERRIDE the existing /users route if needed
+        Route::get('/all-users', [ImpersonateController::class, 'getUsers']); // New endpoint for all users
+        
+        // Impersonate a user (works for both clients and coaches)
+        Route::post('/impersonate/{userId}', [ImpersonateController::class, 'impersonate']);
+        
+        // Check impersonation status
+        Route::get('/impersonate/status', [ImpersonateController::class, 'status']);
     });
