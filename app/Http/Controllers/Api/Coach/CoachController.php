@@ -24,6 +24,7 @@ class CoachController extends BaseController
     {
         $coaches = Coach::with('user.profile')
             ->where('is_active', true)
+            ->where('available_now', true)
             ->get()
             ->map(function ($coach) {
     
